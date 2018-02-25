@@ -84,7 +84,8 @@ void Simulator::pack_actuator_message(mavlink_hil_actuator_controls_t &msg, unsi
 	const float pwm_center = (PWM_DEFAULT_MAX + PWM_DEFAULT_MIN) / 2;
 
 	/* scale outputs depending on system type */
-	if (_system_type == MAV_TYPE_QUADROTOR ||
+	if (_system_type == MAV_TYPE_TRICOPTER ||
+	    _system_type == MAV_TYPE_QUADROTOR ||
 	    _system_type == MAV_TYPE_HEXAROTOR ||
 	    _system_type == MAV_TYPE_OCTOROTOR ||
 	    _system_type == MAV_TYPE_VTOL_DUOROTOR ||
@@ -99,6 +100,10 @@ void Simulator::pack_actuator_message(mavlink_hil_actuator_controls_t &msg, unsi
 		switch (_system_type) {
 		case MAV_TYPE_VTOL_DUOROTOR:
 			n = 2;
+			break;
+
+		case MAV_TYPE_TRICOPTER:
+			n = 3;
 			break;
 
 		case MAV_TYPE_QUADROTOR:
