@@ -20,16 +20,16 @@ px4_add_board(
 		TEL4:/dev/ttyS6
 
 	DRIVERS
-		adc
+		#adc
 		#barometer # all available barometer drivers
 		barometer/ms5611
 		#batt_smbus
 		#camera_capture
 		#camera_trigger
 		#differential_pressure # all available differential pressure drivers
-		differential_pressure/ms4525
+		#differential_pressure/ms4525
 		#distance_sensor # all available distance sensor drivers
-		#distance_sensor/ll40ls
+		distance_sensor/ll40ls
 		#distance_sensor/sf0x
 		gps
 		#heater
@@ -47,11 +47,11 @@ px4_add_board(
 		magnetometer/hmc5883
 		#mkblctrl
 		#optical_flow # all available optical flow drivers
-		optical_flow/px4flow
+		#optical_flow/px4flow
 		#pca9685
 		#protocol_splitter
 		#pwm_input
-		pwm_out_sim
+		#pwm_out_sim
 		px4fmu
 		px4io
 		#roboclaw
@@ -63,13 +63,13 @@ px4_add_board(
 
 	MODULES
 		#attitude_estimator_q
-		camera_feedback
+		#camera_feedback
 		commander
 		dataman
 		ekf2
 		events
-		fw_att_control
-		fw_pos_control_l1
+		#fw_att_control
+		#fw_pos_control_l1
 		#rover_pos_control
 		land_detector
 		#landing_target_estimator
@@ -81,8 +81,8 @@ px4_add_board(
 		mc_pos_control
 		navigator
 		sensors
-		vmount
-		vtol_att_control
+		#vmount
+		#vtol_att_control
 		#airspeed_selector
 
 	SYSTEMCMDS
@@ -91,13 +91,13 @@ px4_add_board(
 		#dumpfile
 		#esc_calib
 		hardfault_log
-		#i2cdetect
+		i2cdetect
 		#led_control
 		mixer
 		#motor_ramp
 		#motor_test
 		mtd
-		#nshterm
+		nshterm
 		param
 		perf
 		pwm
@@ -105,7 +105,7 @@ px4_add_board(
 		#sd_bench
 		#tests # tests and test runner
 		top
-		#topic_listener
+		topic_listener
 		tune_control
 		#usb_connected
 		ver

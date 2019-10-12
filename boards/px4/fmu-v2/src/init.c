@@ -329,6 +329,12 @@ stm32_boardinitialize(void)
 	stm32_configgpio(GPIO_CAN2_RX | GPIO_PULLUP);
 	stm32_configgpio(GPIO_CAN2_TX);
 
+	// Configure sensor power enable pins.
+	stm32_configgpio(GPIO_SENSOR1_PWR_ENABLE);
+	stm32_configgpio(GPIO_SENSOR2_PWR_ENABLE);
+	stm32_configgpio(GPIO_SENSOR3_PWR_ENABLE);
+	stm32_configgpio(GPIO_SENSOR4_PWR_ENABLE);
+
 }
 
 /****************************************************************************

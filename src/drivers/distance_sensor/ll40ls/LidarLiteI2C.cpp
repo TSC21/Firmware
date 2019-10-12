@@ -48,11 +48,22 @@ LidarLiteI2C::LidarLiteI2C(const int bus, const uint8_t rotation, const int addr
 {
 	// up the retries since the device misses the first measure attempts
 	_retries = 3;
+
+	px4_arch_configgpio(GPIO_SENSOR1_PWR_ENABLE);
+	px4_arch_configgpio(GPIO_SENSOR2_PWR_ENABLE);
+	px4_arch_configgpio(GPIO_SENSOR3_PWR_ENABLE);
+	px4_arch_configgpio(GPIO_SENSOR4_PWR_ENABLE);
+
+	px4_arch_gpiowrite(GPIO_SENSOR1_PWR_ENABLE, 1);
+	px4_arch_gpiowrite(GPIO_SENSOR2_PWR_ENABLE, 1);
+	px4_arch_gpiowrite(GPIO_SENSOR3_PWR_ENABLE, 1);
+	px4_arch_gpiowrite(GPIO_SENSOR4_PWR_ENABLE, 1);
 }
 
 LidarLiteI2C::~LidarLiteI2C()
 {
 	stop();
+
 }
 
 int
@@ -60,6 +71,15 @@ LidarLiteI2C::collect()
 {
 	perf_begin(_sample_perf);
 	uint8_t val[2] {};
+
+	for (uint8_t pwr_en_idx = 0; pwr_en_idx <= 3; pwr_en_idx++) {
+		if (pwr_en_idx == _sensor_count) {
+			px4_arch_gpiowrite(_pwr_enable[_sensor_count], 1);
+
+		} else {
+			px4_arch_gpiowrite(_pwr_enable[_sensor_count], 0);
+		}
+	}
 
 	// Increment the sensor index, (limited to the number of sensors connected).
 	for (size_t index = 0; index < _sensor_count; index++) {
@@ -135,7 +155,7 @@ LidarLiteI2C::collect()
 				/*
 				  NACKs from the sensor are expected when we
 				  read before it is ready, so only consider it
-				  an error if more than 100ms has elapsed.
+				  an error if more than 100ms has elapsed.const uint8_t address
 				 */
 				PX4_INFO("signal strength read failed");
 
@@ -267,8 +287,11 @@ LidarLiteI2C::init()
 	// Check for connected rangefinders on each i2c port by incrementing from the base address. LL40LS_BASE_ADDR = 0x62.
 	for (uint8_t address = LL40LS_BASE_ADDR; address < LL40LS_BASE_ADDR + RANGE_FINDER_MAX_SENSORS; address++) {
 
-		if (set_address(address) != PX4_OK ||
-		    measure() != PX4_OK) {
+		if (set_address(address) != PX4_OK) {
+			break;
+		}
+
+		if (measure() != PX4_OK) {
 			break;
 		}
 
@@ -312,6 +335,8 @@ LidarLiteI2C::lidar_lite_transfer(const uint8_t *send, const unsigned send_len, 
 int
 LidarLiteI2C::measure()
 {
+	px4_arch_gpiowrite(_pwr_enable[_sensor_count], 1);
+
 	// Send the command to begin a measurement.
 	int ret = write_reg(LL40LS_MEASURE_REG, LL40LS_MSRREG_ACQUIRE);
 
@@ -518,12 +543,14 @@ LidarLiteI2C::set_address(const uint8_t address)
 		return PX4_ERROR;
 	}
 
+	px4_arch_gpiowrite(_pwr_enable[_sensor_count], 1);
+
 	set_device_address(LL40LS_BASE_ADDR);
 
 	uint8_t serial_number[2] = {};
 
-	if (read_reg(LL40LS_I2C_ID_HIGH, serial_number[0]) != PX4_OK &&
-	    read_reg(LL40LS_I2C_ID_LOW,  serial_number[1]) != PX4_OK) {
+	if (read_reg(LL40LS_UNIT_ID_HIGH, serial_number[0]) != PX4_OK &&
+	    read_reg(LL40LS_UNIT_ID_LOW,  serial_number[1]) != PX4_OK) {
 		PX4_ERR("could not read the device serial number");
 		return PX4_ERROR;
 	}
@@ -531,22 +558,22 @@ LidarLiteI2C::set_address(const uint8_t address)
 	// Store the serial number values.
 	_sensor_serial_numbers[_sensor_count] = serial_number[0] << 8 | serial_number[1];
 
-	if (_sensor_count > 0) {
-		if (_sensor_serial_numbers[_sensor_count] == _sensor_serial_numbers[_sensor_count - 1]) {
-			PX4_ERR("No additional unique sensors present on the bus");
-			return PX4_ERROR;
-		}
-	}
-
 	if (write_reg(LL40LS_I2C_ID_HIGH, serial_number[0]) != PX4_OK &&
 	    write_reg(LL40LS_I2C_ID_LOW,  serial_number[1]) != PX4_OK &&
-	    write_reg(LL40LS_I2C_SEC_ADDR, address) != PX4_OK &&
-	    write_reg(LL40LS_I2C_SEC_ADDR, LL40LS_DISABLE_DEFAULT_ADDR) != PX4_OK) {
+	    write_reg(LL40LS_I2C_SEC_ADDR, address) != PX4_OK) {
 		PX4_ERR("could not set the address");
 		return PX4_ERROR;
 	}
 
 	set_device_address(address);
+
+	if (_sensor_count > 1) {
+		if (write_reg(LL40LS_I2C_SEC_ADDR, address) != PX4_OK) {
+			PX4_ERR("could not disable the default address");
+			return PX4_ERROR;
+		}
+	}
+
 	return PX4_OK;
 }
 

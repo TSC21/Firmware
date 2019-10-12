@@ -45,6 +45,7 @@
 #include <drivers/device/i2c.h>
 #include <drivers/drv_hrt.h>
 #include <mathlib/mathlib.h>
+#include <px4_config.h>
 #include <px4_defines.h>
 #include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 
@@ -82,6 +83,13 @@ static constexpr int LL40LS_SIGNAL_STRENGTH_MAX_V3HP  = 255; /* Max signal stren
 static constexpr int LL40LS_SIGNAL_STRENGTH_LOW       = 24;  /* Minimum signal strength for a valid measurement */
 static constexpr int LL40LS_PEAK_STRENGTH_LOW         = 135; /* Minimum peak strength for accepting a measurement */
 static constexpr int LL40LS_PEAK_STRENGTH_HIGH        = 234; /* Max peak strength raw value */
+
+static constexpr uint32_t _pwr_enable[4] = {
+	GPIO_SENSOR1_PWR_ENABLE,
+	GPIO_SENSOR2_PWR_ENABLE,
+	GPIO_SENSOR3_PWR_ENABLE,
+	GPIO_SENSOR4_PWR_ENABLE
+};
 
 
 class LidarLiteI2C : public LidarLite, public device::I2C, public px4::ScheduledWorkItem
