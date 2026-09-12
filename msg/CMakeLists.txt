@@ -37,6 +37,11 @@ cmake_policy(SET CMP0057 NEW)
 include(px4_list_make_absolute)
 
 set(msg_files
+	versioned/ModeOverlayRequest.msg
+	versioned/ModeOverlayReply.msg
+	versioned/ModeOverlayInput.msg
+	versioned/ModeOverlayOutput.msg
+	versioned/ModeOverlayStatus.msg
 	ActionRequest.msg
 	ActuatorArmed.msg
 	ActuatorControlsStatus.msg

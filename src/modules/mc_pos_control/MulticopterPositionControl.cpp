@@ -428,13 +428,19 @@ void MulticopterPositionControl::Run()
 		const bool goto_setpoint_enable = _vehicle_control_mode.flag_multicopter_position_control_enabled
 						  && !_trajectory_setpoint_sub.updated();
 
-		if (_goto_control.checkForSetpoint(vehicle_local_position.timestamp_sample, goto_setpoint_enable)) {
+		const bool goto_control_active = _goto_control.checkForSetpoint(vehicle_local_position.timestamp_sample, goto_setpoint_enable);
+
+		if (goto_control_active) {
 			_goto_control.update(dt, states.position, states.velocity, states.acceleration, states.yaw);
 		}
 
 		_trajectory_setpoint_sub.update(&_setpoint);
 
 		adjustSetpointForEKFResets(vehicle_local_position, _setpoint);
+
+		const trajectory_setpoint_s overlay_setpoint = _overlay.update(_setpoint, vehicle_local_position,
+				_vehicle_control_mode, _vehicle_land_detected.landed || _takeoff.getTakeoffState() < TakeoffState::flight,
+				states.acceleration, dt, goto_control_active);
 
 		if (_vehicle_control_mode.flag_multicopter_position_control_enabled) {
 			// set failsafe setpoint if there hasn't been a new
@@ -541,23 +547,25 @@ void MulticopterPositionControl::Run()
 				math::min(speed_up, _param_mpc_z_vel_max_up.get()), // takeoff ramp starts with negative velocity limit
 				math::max(speed_down, 0.f));
 
-			_control.setInputSetpoint(_setpoint);
+			const trajectory_setpoint_s controller_setpoint = _overlay.selected() && flying && !flying_but_ground_contact
+					? overlay_setpoint : _setpoint;
+			_control.setInputSetpoint(controller_setpoint);
 
 			// update states
-			if (!PX4_ISFINITE(_setpoint.position[2])
-			    && PX4_ISFINITE(_setpoint.velocity[2]) && (fabsf(_setpoint.velocity[2]) > FLT_EPSILON)
+			if (!PX4_ISFINITE(controller_setpoint.position[2])
+			    && PX4_ISFINITE(controller_setpoint.velocity[2]) && (fabsf(controller_setpoint.velocity[2]) > FLT_EPSILON)
 			    && PX4_ISFINITE(vehicle_local_position.z_deriv) && vehicle_local_position.z_valid && vehicle_local_position.v_z_valid) {
 				// A change in velocity is demanded and the altitude is not controlled.
 				// Set velocity to the derivative of position
 				// because it has less bias but blend it in across the landing speed range
 				//  <  MPC_LAND_SPEED: ramp up using altitude derivative without a step
 				//  >= MPC_LAND_SPEED: use altitude derivative
-				float weighting = fminf(fabsf(_setpoint.velocity[2]) / _param_mpc_land_speed.get(), 1.f);
+				float weighting = fminf(fabsf(controller_setpoint.velocity[2]) / _param_mpc_land_speed.get(), 1.f);
 				states.velocity(2) = vehicle_local_position.z_deriv * weighting + vehicle_local_position.vz * (1.f - weighting);
 			}
 
-			if ((!PX4_ISFINITE(_setpoint.velocity[0]) || !PX4_ISFINITE(_setpoint.velocity[1]))
-			    && (!PX4_ISFINITE(_setpoint.position[0]) || !PX4_ISFINITE(_setpoint.position[1]))) {
+			if ((!PX4_ISFINITE(controller_setpoint.velocity[0]) || !PX4_ISFINITE(controller_setpoint.velocity[1]))
+			    && (!PX4_ISFINITE(controller_setpoint.position[0]) || !PX4_ISFINITE(controller_setpoint.position[1]))) {
 				// Horizontal velocity is not controlled, reset the integrators to avoid
 				// over-corrections when starting again.
 				_control.resetIntegralXY();
@@ -571,7 +579,7 @@ void MulticopterPositionControl::Run()
 			if (_control.update(dt)) {
 
 				// Valid control update - store for fallback
-				_last_valid_setpoint = _setpoint;
+				_last_valid_setpoint = controller_setpoint;
 
 			} else {
 

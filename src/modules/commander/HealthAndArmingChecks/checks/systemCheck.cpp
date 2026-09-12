@@ -39,6 +39,24 @@
 
 void SystemChecks::checkAndReport(const Context &context, Report &reporter)
 {
+	mode_overlay_status_s overlay{};
+	const bool overlay_fresh = _overlay_status_sub.copy(&overlay) && overlay.timestamp != 0 &&
+				   hrt_absolute_time() >= overlay.timestamp && hrt_elapsed_time(&overlay.timestamp) < 500_ms;
+	const bool overlay_required = _param_overlay_enabled.get() &&
+				      context.status().vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
+	reporter.failsafeFlags().mode_overlay_failure = overlay_required && context.isArmed() &&
+			((overlay_fresh && overlay.failed) || (!overlay_fresh && overlay.applicable));
+
+	if (overlay_required && !context.isArmed() && (!overlay_fresh || !overlay.registered || !overlay.ready)) {
+		/* EVENT
+		 * @description
+		 * Start the companion navigation overlay and verify its sensors and estimator.
+		 */
+		reporter.armingCheckFailure(NavModes::All, health_component_t::system,
+					    events::ID("check_mode_overlay_not_ready"), events::Log::Error,
+					    "Navigation overlay is not ready");
+	}
+
 	actuator_armed_s actuator_armed;
 
 	if (_actuator_armed_sub.copy(&actuator_armed)) {

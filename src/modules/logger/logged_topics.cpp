@@ -134,6 +134,10 @@ void LoggedTopics::add_default_topics()
 	add_optional_topic("tecs_status", 200);
 	add_optional_topic("tiltrotor_extra_controls", 100);
 	add_topic("trajectory_setpoint", 200);
+	add_topic("mode_overlay_input", 20);
+	add_topic("mode_overlay_output", 20);
+	add_topic("mode_overlay_status", 20);
+	add_topic("vehicle_odometry", 20);
 	add_topic("transponder_report");
 	add_topic("vehicle_acceleration", 50);
 	add_topic("vehicle_air_data", 200);

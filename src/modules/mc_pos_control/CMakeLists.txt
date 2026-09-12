@@ -31,6 +31,7 @@
 #
 ############################################################################
 
+add_subdirectory(ModeOverlay)
 add_subdirectory(GotoControl)
 add_subdirectory(PositionControl)
 add_subdirectory(Takeoff)
@@ -54,6 +55,7 @@ px4_add_module(
 		multicopter_stabilized_mode_params.yaml
 		multicopter_takeoff_land_params.yaml
 	DEPENDS
+		ModeOverlay
 		GotoControl
 		PositionControl
 		Takeoff

@@ -5,6 +5,17 @@
 #####
 publications:
 
+  - topic: /fmu/out/mode_overlay_reply
+    type: px4_msgs::msg::ModeOverlayReply
+
+  - topic: /fmu/out/mode_overlay_input
+    type: px4_msgs::msg::ModeOverlayInput
+    rate_limit: 50.
+
+  - topic: /fmu/out/mode_overlay_status
+    type: px4_msgs::msg::ModeOverlayStatus
+    rate_limit: 50.
+
   - topic: /fmu/out/register_ext_component_reply
     type: px4_msgs::msg::RegisterExtComponentReply
 
@@ -125,6 +136,12 @@ publications:
 
 # Create uORB::Publication
 subscriptions:
+
+  - topic: /fmu/in/mode_overlay_request
+    type: px4_msgs::msg::ModeOverlayRequest
+
+  - topic: /fmu/in/mode_overlay_output
+    type: px4_msgs::msg::ModeOverlayOutput
   - topic: /fmu/in/register_ext_component_request
     type: px4_msgs::msg::RegisterExtComponentRequest
 

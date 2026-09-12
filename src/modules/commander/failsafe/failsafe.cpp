@@ -624,6 +624,10 @@ void Failsafe::checkStateAndMode(const hrt_abstime &time_us, const State &state,
 		CHECK_FAILSAFE(status_flags, vtol_fixed_wing_system_failure, fromQuadchuteActParam(_param_com_qc_act.get()));
 	}
 
+	CHECK_FAILSAFE(status_flags, mode_overlay_failure,
+		       ActionOptions(Action::Hold).clearOn(ClearCondition::OnDisarm)
+		       .allowUserTakeover(UserTakeoverAllowed::AlwaysModeSwitchOnly).cannotBeDeferred());
+
 	// Mission
 	if (state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) {
 		CHECK_FAILSAFE(status_flags, mission_failure, Action::RTL);

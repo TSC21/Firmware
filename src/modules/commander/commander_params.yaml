@@ -2,6 +2,50 @@ module_name: commander
 parameters:
 - group: Commander
   definitions:
+    COM_OVL_EN:
+      description:
+        short: Require a multicopter navigation overlay
+        long: |-
+          Enable registration and require a healthy companion overlay before arming.
+          In the selected multicopter modes, loss commands a jerk-limited brake
+          and triggers Hold. The failure remains latched until disarm.
+          Takeoff, landing, VTOL transitions and attitude-only modes are excluded.
+      type: boolean
+      default: 0
+    COM_OVL_TOUT:
+      description:
+        short: Navigation overlay response timeout
+        long: Maximum age of both the FMU intent and the received overlay response.
+      type: float
+      default: 0.3
+      unit: s
+      min: 0.1
+      max: 1.0
+      decimal: 2
+    COM_OVL_DEV:
+      description:
+        short: Navigation overlay reference radius
+        long: |-
+          Maximum distance of an overlay position reference from the current
+          vehicle position. References outside the radius are rejected, never clamped.
+      type: float
+      default: 3.0
+      unit: m
+      min: 0.5
+      max: 10.0
+      decimal: 1
+    COM_OVL_MASK:
+      description:
+        short: Navigation overlay modes
+        long: |-
+          Bitmask of VehicleStatus navigation states. Firmware restricts it to
+          multicopter Position, Position Slow, Mission, Hold, Return, Offboard
+          and external modes. An enabled selected mode without a registered
+          healthy overlay brakes instead of resuming unprotected motion.
+      type: int32
+      default: 2139111548
+      min: 0
+      max: 2147483647
     COM_DL_LOSS_T:
       description:
         short: GCS connection loss time threshold

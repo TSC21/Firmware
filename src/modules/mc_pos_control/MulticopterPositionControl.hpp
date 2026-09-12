@@ -38,6 +38,7 @@
 #pragma once
 
 #include "PositionControl/PositionControl.hpp"
+#include "ModeOverlay/ModeOverlay.hpp"
 #include "Takeoff/Takeoff.hpp"
 #include "GotoControl/GotoControl.hpp"
 
@@ -92,6 +93,8 @@ public:
 
 private:
 	void Run() override;
+
+	ModeOverlay _overlay{this};
 
 	TakeoffHandling _takeoff; /**< state machine and ramp to bring the vehicle off the ground without jumps */
 
