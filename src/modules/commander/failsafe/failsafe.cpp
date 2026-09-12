@@ -624,8 +624,17 @@ void Failsafe::checkStateAndMode(const hrt_abstime &time_us, const State &state,
 		CHECK_FAILSAFE(status_flags, vtol_fixed_wing_system_failure, fromQuadchuteActParam(_param_com_qc_act.get()));
 	}
 
+	// An explicit recovery request must also win when it arrives in the same
+	// update that first activates the overlay failure. Keep the failure latched.
+	const bool overlay_recovery = state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_LAND ||
+				      state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_PRECLAND ||
+				      state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_DESCEND ||
+				      state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_MANUAL ||
+				      state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_ALTCTL ||
+				      state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_STAB ||
+				      state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_ACRO;
 	CHECK_FAILSAFE(status_flags, mode_overlay_failure,
-		       ActionOptions(Action::Hold).clearOn(ClearCondition::OnDisarm)
+		       ActionOptions(overlay_recovery ? Action::Warn : Action::Hold).clearOn(ClearCondition::OnDisarm)
 		       .allowUserTakeover(UserTakeoverAllowed::AlwaysModeSwitchOnly).cannotBeDeferred());
 
 	// Mission

@@ -936,3 +936,30 @@ TEST_F(FailsafeTest, NoNotificationForDisabledFailsafe)
 	EXPECT_EQ(failsafe.selectedAction(), FailsafeBase::Action::None);
 	EXPECT_EQ(notifications, notifications_before);
 }
+
+TEST_F(FailsafeTest, OverlayFailureDoesNotSuppressImmediateLandingRequest)
+{
+	Failsafe failsafe(nullptr);
+	failsafe_flags_s flags{};
+	FailsafeBase::State state{};
+	state.armed = true;
+	state.vehicle_type = vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
+	state.user_intended_mode = vehicle_status_s::NAVIGATION_STATE_OFFBOARD;
+	hrt_abstime time = 5_s;
+	failsafe.update(time, state, false, false, flags);
+	ASSERT_EQ(failsafe.selectedAction(), FailsafeBase::Action::None);
+
+	flags.mode_overlay_failure = true;
+	state.user_intended_mode = vehicle_status_s::NAVIGATION_STATE_AUTO_LAND;
+	const auto recovery = failsafe.update(time += 10_ms, state, true, false, flags);
+	EXPECT_EQ(recovery, vehicle_status_s::NAVIGATION_STATE_AUTO_LAND);
+	EXPECT_EQ(failsafe.selectedAction(), FailsafeBase::Action::Warn);
+
+	state.user_intended_mode = vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION;
+	failsafe.update(time += 10_ms, state, true, false, flags);
+	EXPECT_EQ(failsafe.selectedAction(), FailsafeBase::Action::Hold);
+
+	state.user_intended_mode = vehicle_status_s::NAVIGATION_STATE_AUTO_LAND;
+	failsafe.update(time += 10_ms, state, true, false, flags);
+	EXPECT_EQ(failsafe.selectedAction(), FailsafeBase::Action::Warn);
+}
