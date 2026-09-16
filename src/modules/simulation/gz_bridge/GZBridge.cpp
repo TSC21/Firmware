@@ -214,7 +214,8 @@ bool GZBridge::subscribeClock(bool required)
 
 bool GZBridge::subscribePoseInfo(bool required)
 {
-	std::string world_pose_topic = "/world/" + _world_name + "/pose/info";
+	// The dynamic stream carries the same vehicle poses without static models and visuals.
+	std::string world_pose_topic = "/world/" + _world_name + "/dynamic_pose/info";
 
 	if (!_node.Subscribe(world_pose_topic, &GZBridge::poseInfoCallback, this)) {
 		PX4_ERR("failed to subscribe to %s", world_pose_topic.c_str());
