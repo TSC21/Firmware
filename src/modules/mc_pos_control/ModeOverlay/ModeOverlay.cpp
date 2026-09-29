@@ -22,8 +22,9 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 	config.max_velocity_xy = _param_velocity_xy.get();
 	config.max_velocity_up = _param_velocity_up.get();
 	config.max_velocity_down = _param_velocity_down.get();
-	config.max_acceleration = math::min(_param_acceleration_xy.get(),
-					    math::min(_param_acceleration_up.get(), _param_acceleration_down.get()));
+	config.max_acceleration_xy = _param_acceleration_xy.get();
+	config.max_acceleration_up = _param_acceleration_up.get();
+	config.max_acceleration_down = _param_acceleration_down.get();
 	config.max_jerk = _param_jerk.get();
 	_policy.configure(config);
 
@@ -103,7 +104,7 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 
 		for (auto &axis : _brake) {
 			axis.setMaxJerk(config.max_jerk * inverse_sqrt_three);
-			axis.setMaxAccel(config.max_acceleration * inverse_sqrt_three);
+			axis.setMaxAccel(config.maxAcceleration() * inverse_sqrt_three);
 			axis.setMaxVel(math::max(config.max_velocity_xy, math::max(config.max_velocity_up, config.max_velocity_down)));
 			axis.updateDurations(0.f);
 		}

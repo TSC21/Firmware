@@ -33,12 +33,17 @@ public:
 		bool enabled{false};
 		uint32_t modes{SUPPORTED_MODES};
 		uint64_t timeout_us{300000};
-		float max_deviation{3.f};
-		float max_velocity_xy{5.f};
-		float max_velocity_up{2.f};
-		float max_velocity_down{1.5f};
-		float max_acceleration{2.f};
-		float max_jerk{4.f};
+		float max_deviation{3.f}; ///< [m]
+		float max_velocity_xy{5.f}; ///< [m/s]
+		float max_velocity_up{2.f}; ///< [m/s]
+		float max_velocity_down{1.5f}; ///< [m/s]
+		float max_acceleration_xy{2.f}; ///< horizontal norm [m/s^2]
+		float max_acceleration_up{2.f}; ///< NED -z [m/s^2]
+		float max_acceleration_down{2.f}; ///< NED +z [m/s^2]
+		float max_jerk{4.f}; ///< norm [m/s^3]
+
+		/** Acceleration norm accepted in every direction [m/s^2]. */
+		float maxAcceleration() const { return math::min(max_acceleration_xy, math::min(max_acceleration_up, max_acceleration_down)); }
 	};
 
 	enum class Selection { Passthrough, Replace, Brake };
@@ -183,7 +188,8 @@ public:
 		}
 
 		if (output.action > mode_overlay_output_s::ACTION_STOP ||
-		    (output.action == mode_overlay_output_s::ACTION_REPLACE && !valid(output.setpoint, position))) {
+		    (output.action == mode_overlay_output_s::ACTION_REPLACE
+		     && !(withinLimits(output.setpoint) && withinRadius(matrix::Vector3f(output.setpoint.position), position)))) {
 			_ready = false;
 			_failed |= _armed && _applicable;
 			++_rejected;
@@ -226,7 +232,7 @@ public:
 
 		if (_action == mode_overlay_output_s::ACTION_REPLACE) {
 			// The vehicle and operator limits may have changed since reception.
-			if (!valid(_setpoint, position)) {
+			if (!withinLimits(_setpoint) || !withinRadius(matrix::Vector3f(_setpoint.position), position)) {
 				_ready = false;
 				_failed = true;
 				_braking = true;
@@ -268,8 +274,12 @@ public:
 		status.max_velocity_xy = _config.max_velocity_xy;
 		status.max_velocity_up = _config.max_velocity_up;
 		status.max_velocity_down = _config.max_velocity_down;
-		status.max_acceleration = _config.max_acceleration;
+		status.max_acceleration = _config.maxAcceleration();
+		status.max_acceleration_xy = _config.max_acceleration_xy;
+		status.max_acceleration_up = _config.max_acceleration_up;
+		status.max_acceleration_down = _config.max_acceleration_down;
 		status.max_jerk = _config.max_jerk;
+		status.timeout = _config.timeout_us * 1e-6f;
 		return status;
 	}
 
@@ -290,17 +300,26 @@ private:
 		_accepted_at = 0;
 		_accepted_intent_at = 0;
 	}
-	bool valid(const trajectory_setpoint_s &setpoint, const matrix::Vector3f &position) const
+	/** Finite full-state reference inside the granted velocity, acceleration and jerk limits. */
+	bool withinLimits(const trajectory_setpoint_s &setpoint) const
 	{
 		const matrix::Vector3f p{setpoint.position};
 		const matrix::Vector3f v{setpoint.velocity};
 		const matrix::Vector3f a{setpoint.acceleration};
 		const matrix::Vector3f j{setpoint.jerk};
-		return p.isAllFinite() && v.isAllFinite() && a.isAllFinite() && j.isAllFinite() && position.isAllFinite() &&
-		       (p - position).norm() <= math::min(_max_deviation, _config.max_deviation) &&
+		return p.isAllFinite() && v.isAllFinite() && a.isAllFinite() && j.isAllFinite() &&
 		       matrix::Vector2f(v(0), v(1)).norm() <= _config.max_velocity_xy &&
 		       v(2) >= -_config.max_velocity_up && v(2) <= _config.max_velocity_down &&
-		       a.norm() <= _config.max_acceleration && j.norm() <= _config.max_jerk;
+		       matrix::Vector2f(a(0), a(1)).norm() <= _config.max_acceleration_xy &&
+		       a(2) >= -_config.max_acceleration_up && a(2) <= _config.max_acceleration_down &&
+		       j.norm() <= _config.max_jerk;
+	}
+
+	/** Reference position inside the granted radius around the vehicle [m]. */
+	bool withinRadius(const matrix::Vector3f &reference, const matrix::Vector3f &position) const
+	{
+		return reference.isAllFinite() && position.isAllFinite() &&
+		       (reference - position).norm() <= math::min(_max_deviation, _config.max_deviation);
 	}
 
 	Config _config{};

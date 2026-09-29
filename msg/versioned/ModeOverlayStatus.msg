@@ -14,9 +14,13 @@ bool engaged # A valid replacement is actually selected by the controller
 bool ready # A fresh, correlated response reports ready
 bool braking # Firmware brake reference is actually selected
 bool failed # Latches on loss/invalid output in flight until disarm
-float32 max_deviation
-float32 max_velocity_xy
-float32 max_velocity_up
-float32 max_velocity_down
-float32 max_acceleration
-float32 max_jerk
+float32 max_deviation # Granted local reference radius, m
+float32 max_velocity_xy # Horizontal speed limit, m/s
+float32 max_velocity_up # Climb rate limit, m/s
+float32 max_velocity_down # Descent rate limit, m/s
+float32 max_acceleration # Acceleration norm accepted in every direction, m/s^2
+float32 max_acceleration_xy # Horizontal acceleration norm limit, m/s^2
+float32 max_acceleration_up # Upward (NED -z) acceleration limit, m/s^2
+float32 max_acceleration_down # Downward (NED +z) acceleration limit, m/s^2
+float32 max_jerk # Jerk norm limit, m/s^3
+float32 timeout # Maximum input and response age before braking, s

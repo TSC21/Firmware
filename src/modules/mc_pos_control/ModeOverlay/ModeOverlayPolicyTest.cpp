@@ -4,6 +4,7 @@
  ****************************************************************************/
 #include "ModeOverlayPolicy.hpp"
 #include <gtest/gtest.h>
+#include <cmath>
 #include <cstring>
 #include <limits>
 
@@ -187,7 +188,7 @@ TEST_F(ModeOverlayPolicyTest, EnforcesVelocityAccelerationAndJerk)
 	output.setpoint.velocity[2] = -config.max_velocity_up - 1.f;
 	EXPECT_FALSE(policy.output(output, {}, now));
 	output = response();
-	output.setpoint.acceleration[0] = config.max_acceleration + 1.f;
+	output.setpoint.acceleration[0] = config.max_acceleration_xy + 1.f;
 	EXPECT_FALSE(policy.output(output, {}, now));
 	output = response();
 	output.setpoint.jerk[0] = config.max_jerk + 1.f;
@@ -243,4 +244,37 @@ TEST_F(ModeOverlayPolicyTest, InvalidActionCannotPreserveReadiness)
 	output.action = 255;
 	EXPECT_FALSE(policy.output(output, {}, now));
 	EXPECT_TRUE(policy.failed());
+}
+
+TEST_F(ModeOverlayPolicyTest, DirectionalAccelerationLimits)
+{
+	config.max_acceleration_xy = 5.f;
+	config.max_acceleration_up = 4.f;
+	config.max_acceleration_down = 3.f;
+	policy.configure(config);
+	auto output = response();
+	output.setpoint.acceleration[0] = 3.f;
+	output.setpoint.acceleration[1] = 4.f; // |a_xy| = 5
+	output.setpoint.acceleration[2] = -4.f; // upwards
+	ASSERT_TRUE(policy.output(output, {}, now));
+	output.sequence = 2;
+	output.setpoint.acceleration[2] = 3.f; // downwards
+	ASSERT_TRUE(policy.output(output, {}, now));
+
+	for (const matrix::Vector3f &over : {
+		     matrix::Vector3f{3.1f, 4.f, 0.f}, matrix::Vector3f{0.f, 0.f, -4.1f},
+		     matrix::Vector3f{0.f, 0.f, 3.1f}
+	     }) {
+		auto rejected = response();
+		rejected.sequence = 3;
+		over.copyTo(rejected.setpoint.acceleration);
+		EXPECT_FALSE(policy.output(rejected, {}, now));
+	}
+
+	const auto status = policy.status(now);
+	EXPECT_FLOAT_EQ(status.max_acceleration, 3.f);
+	EXPECT_FLOAT_EQ(status.max_acceleration_xy, 5.f);
+	EXPECT_FLOAT_EQ(status.max_acceleration_up, 4.f);
+	EXPECT_FLOAT_EQ(status.max_acceleration_down, 3.f);
+	EXPECT_FLOAT_EQ(status.timeout, 0.3f);
 }
