@@ -31,6 +31,7 @@ public:
 
 	struct Config {
 		bool enabled{false};
+		bool yaw_enabled{false}; ///< COM_OVL_YAW: grant requested heading authority
 		uint32_t modes{SUPPORTED_MODES};
 		uint64_t timeout_us{300000};
 		float max_deviation{3.f}; ///< [m]
@@ -41,6 +42,8 @@ public:
 		float max_acceleration_up{2.f}; ///< NED -z [m/s^2]
 		float max_acceleration_down{2.f}; ///< NED +z [m/s^2]
 		float max_jerk{4.f}; ///< norm [m/s^3]
+		float max_yawspeed{1.f}; ///< [rad/s]
+		float max_yaw_acceleration{0.35f}; ///< [rad/s^2]
 
 		/** Acceleration norm accepted in every direction [m/s^2]. */
 		float maxAcceleration() const { return math::min(max_acceleration_xy, math::min(max_acceleration_up, max_acceleration_down)); }
@@ -61,6 +64,11 @@ public:
 	const Config &config() const { return _config; }
 	uint64_t session() const { return _session; }
 	bool failed() const { return _failed; }
+	/** The session requested heading authority and COM_OVL_YAW currently allows it. */
+	bool yawAuthority() const { return _session != 0 && _yaw_granted && _config.yaw_enabled; }
+	/** Granted companion heading [rad] and rate [rad/s] of the last Replace selection; NaN without one. */
+	float companionYaw() const { return _companion_yaw; }
+	float companionYawspeed() const { return _companion_yawspeed; }
 	bool ready(uint64_t now) const
 	{
 		return _session != 0 && _ready && !_failed && fresh(now, _accepted_at)
@@ -114,7 +122,8 @@ public:
 
 		const float deviation = math::min(request.max_deviation, _config.max_deviation);
 
-		if (_session == request.session_id && (modes != _modes || fabsf(deviation - _max_deviation) > FLT_EPSILON)) {
+		if (_session == request.session_id && (modes != _modes || fabsf(deviation - _max_deviation) > FLT_EPSILON
+						       || request.yaw_authority != _yaw_requested)) {
 			return reply; // Session settings are immutable; unregister before changing them.
 		}
 
@@ -122,6 +131,9 @@ public:
 			_session = request.session_id;
 			_modes = modes;
 			_max_deviation = deviation;
+			_yaw_requested = request.yaw_authority;
+			// Heading authority is decided once per session; COM_OVL_YAW can revoke it later.
+			_yaw_granted = request.yaw_authority && _config.yaw_enabled;
 			_lease_at = now;
 			_sequence = 0;
 			_ready = false;
@@ -132,6 +144,7 @@ public:
 		reply.result = mode_overlay_reply_s::RESULT_ACCEPTED;
 		reply.applicable_modes = _modes;
 		reply.max_deviation = _max_deviation;
+		reply.yaw_authority = yawAuthority();
 		return reply;
 	}
 
@@ -214,6 +227,8 @@ public:
 	{
 		_engaged = false;
 		_braking = false;
+		_companion_yaw = NAN;
+		_companion_yawspeed = NAN;
 
 		if (!_applicable || !_armed) { return Selection::Passthrough; }
 
@@ -249,8 +264,16 @@ public:
 			const float yawspeed = effective.yawspeed;
 			effective = reference;
 			effective.timestamp = now;
-			effective.yaw = yaw; // The overlay has no yaw authority.
+			// The source heading stays in effect; granted companion headings are exposed separately
+			// so the adapter can engage them without steps.
+			effective.yaw = yaw;
 			effective.yawspeed = yawspeed;
+
+			if (yawAuthority() && PX4_ISFINITE(reference.yaw)) {
+				_companion_yaw = reference.yaw;
+				_companion_yawspeed = reference.yawspeed;
+			}
+
 			_engaged = true;
 			return Selection::Replace;
 		}
@@ -284,6 +307,9 @@ public:
 		status.max_acceleration_up = _config.max_acceleration_up;
 		status.max_acceleration_down = _config.max_acceleration_down;
 		status.max_jerk = _config.max_jerk;
+		status.yaw_authority = yawAuthority();
+		status.max_yawspeed = _config.max_yawspeed;
+		status.max_yaw_acceleration = _config.max_yaw_acceleration;
 		status.timeout = _config.timeout_us * 1e-6f;
 		return status;
 	}
@@ -329,7 +355,8 @@ private:
 
 	/**
 	 * Advance a full-state reference by its age since reception, at most the response timeout.
-	 * Position, velocity and acceleration follow the reference jerk exactly (a cubic segment).
+	 * Position, velocity and acceleration follow the reference jerk exactly (a cubic segment);
+	 * a finite heading follows its heading rate.
 	 */
 	trajectory_setpoint_s propagate(const trajectory_setpoint_s &setpoint, uint64_t now) const
 	{
@@ -344,6 +371,10 @@ private:
 		(v + a * t + j * (0.5f * t * t)).copyTo(reference.velocity);
 		(a + j * t).copyTo(reference.acceleration);
 
+		if (PX4_ISFINITE(setpoint.yaw) && PX4_ISFINITE(setpoint.yawspeed)) {
+			reference.yaw = matrix::wrap_pi(setpoint.yaw + setpoint.yawspeed * t);
+		}
+
 		return reference;
 	}
 
@@ -355,7 +386,9 @@ private:
 	uint64_t _setpoint_at{0}; ///< PX4 reception time of the accepted reference
 	uint32_t _modes{0}, _estimator_reset{0}, _rejected{0};
 	float _max_deviation{0.f};
+	float _companion_yaw{NAN}, _companion_yawspeed{NAN};
 	uint8_t _nav_state{0}, _action{mode_overlay_output_s::ACTION_STOP};
 	bool _ready{false}, _failed{false}, _initialized{false}, _armed{false};
 	bool _applicable{false}, _engaged{false}, _braking{false};
+	bool _yaw_requested{false}, _yaw_granted{false};
 };

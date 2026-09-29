@@ -34,6 +34,17 @@ parameters:
       min: 0.5
       max: 10.0
       decimal: 1
+    COM_OVL_YAW:
+      description:
+        short: Navigation overlay heading authority
+        long: |-
+          Grant heading authority to an overlay that requests it at registration.
+          Its replacement heading and heading rate then drive the heading within
+          MPC_YAWRAUTO_MAX and MPC_YAWRAUTO_ACC, taking over and handing back
+          without heading steps. Disabling revokes the authority immediately.
+          When disabled, the overlay keeps the heading of the active mode.
+      type: boolean
+      default: 0
     COM_OVL_MASK:
       description:
         short: Navigation overlay modes

@@ -11,4 +11,5 @@ uint8 RESULT_INVALID = 4
 uint8 result
 uint32 applicable_modes # Granted modes; valid on acceptance
 float32 max_deviation # Granted local reference radius, m
+bool yaw_authority # Heading authority granted to the session; valid on acceptance
 uint8 ORB_QUEUE_LENGTH = 4

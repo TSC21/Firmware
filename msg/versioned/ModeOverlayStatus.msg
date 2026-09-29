@@ -23,4 +23,7 @@ float32 max_acceleration_xy # Horizontal acceleration norm limit, m/s^2
 float32 max_acceleration_up # Upward (NED -z) acceleration limit, m/s^2
 float32 max_acceleration_down # Downward (NED +z) acceleration limit, m/s^2
 float32 max_jerk # Jerk norm limit, m/s^3
+bool yaw_authority # REPLACE heading is in effect; false keeps the source mode heading
+float32 max_yawspeed # Heading rate limit for granted headings, rad/s
+float32 max_yaw_acceleration # Heading acceleration limit for granted headings, rad/s^2
 float32 timeout # Maximum input and response age before braking, s

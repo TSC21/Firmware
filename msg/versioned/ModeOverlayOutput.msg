@@ -9,4 +9,4 @@ uint8 ACTION_REPLACE = 1
 uint8 ACTION_STOP = 2
 uint8 action
 bool ready # Companion perception/state are fresh; false requests a stop
-TrajectorySetpoint setpoint # Full finite position, velocity, acceleration for REPLACE
+TrajectorySetpoint setpoint # REPLACE: finite position, velocity, acceleration and jerk; yaw only with heading authority

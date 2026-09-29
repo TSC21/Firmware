@@ -16,6 +16,7 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 	_goto_sub.update(&_goto);
 	ModeOverlayPolicy::Config config{};
 	config.enabled = _param_enabled.get();
+	config.yaw_enabled = _param_yaw_enabled.get();
 	config.timeout_us = static_cast<uint64_t>(math::constrain(_param_timeout.get(), 0.1f, 1.f) * 1e6f);
 	config.max_deviation = _param_deviation.get();
 	config.modes = static_cast<uint32_t>(_param_modes.get());
@@ -26,12 +27,15 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 	config.max_acceleration_up = _param_acceleration_up.get();
 	config.max_acceleration_down = _param_acceleration_down.get();
 	config.max_jerk = _param_jerk.get();
+	config.max_yawspeed = math::radians(_param_yawspeed.get());
+	config.max_yaw_acceleration = math::radians(_param_yaw_acceleration.get());
 	_policy.configure(config);
 
 	if (!config.enabled) {
 		_policy.updateContext(now, control.flag_armed, _vehicle_status.nav_state, _reset_count, false);
 		_selected = false;
 		_brake_active = false;
+		_heading.reset();
 		mode_overlay_request_s request{};
 
 		if (_request_sub.update(&request)) { _reply_pub.publish(_policy.request(request, control.flag_armed, now)); }
@@ -53,6 +57,11 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 			++_reset_count;
 			_reset_counters[i] = counters[i];
 		}
+	}
+
+	if (counters[4] != _heading_reset_counter) {
+		_heading.shift(local.delta_heading);
+		_heading_reset_counter = counters[4];
 	}
 
 	const matrix::Vector3f position{local.x, local.y, local.z};
@@ -81,7 +90,6 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 
 	trajectory_setpoint_s effective = raw;
 	const auto selection = _policy.select(now, effective, position);
-	_selected = selection != ModeOverlayPolicy::Selection::Passthrough;
 	const auto status = _policy.status(now);
 
 	if (selection == ModeOverlayPolicy::Selection::Brake) {
@@ -102,6 +110,22 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 	} else {
 		_brake_active = false;
 	}
+
+	// Without heading authority the heading passes through unchanged; a granted heading
+	// engages and hands back within the auto yaw limits.
+	if (control.flag_armed) {
+		const ModeOverlayHeading::Limits heading_limits{config.max_yawspeed, config.max_yaw_acceleration};
+		_heading.update(effective.yaw, effective.yawspeed, _policy.companionYaw(), _policy.companionYawspeed(),
+				selection == ModeOverlayPolicy::Selection::Brake, local.heading, dt, heading_limits);
+		effective.yaw = _heading.yaw();
+		effective.yawspeed = _heading.yawspeed();
+
+	} else {
+		_heading.reset();
+	}
+
+	// A heading still returning to the mode heading keeps the overlay reference selected.
+	_selected = selection != ModeOverlayPolicy::Selection::Passthrough || _heading.active();
 
 	// Correlation tokens are generated at 50 Hz, independently of controller frequency.
 	if (now - _last_publish >= 20000) {

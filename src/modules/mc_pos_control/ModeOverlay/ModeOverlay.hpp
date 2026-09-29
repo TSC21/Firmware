@@ -5,6 +5,7 @@
 #pragma once
 
 #include "ModeOverlayBrake.hpp"
+#include "ModeOverlayHeading.hpp"
 #include "ModeOverlayPolicy.hpp"
 #include <px4_platform_common/module_params.h>
 #include <uORB/Publication.hpp>
@@ -41,16 +42,19 @@ private:
 	position_setpoint_triplet_s _triplet{};
 	goto_setpoint_s _goto{};
 	ModeOverlayBrake _brake;
+	ModeOverlayHeading _heading;
 	uint64_t _last_publish{0};
 	uint32_t _reset_count{0};
 	uint8_t _reset_counters[5] {};
 	uint32_t _brake_epoch{0};
+	uint8_t _heading_reset_counter{0};
 	bool _brake_active{false};
 	bool _selected{false};
 	float _brake_yaw{0.f};
 
 	DEFINE_PARAMETERS(
 		(ParamBool<px4::params::COM_OVL_EN>) _param_enabled,
+		(ParamBool<px4::params::COM_OVL_YAW>) _param_yaw_enabled,
 		(ParamFloat<px4::params::COM_OVL_TOUT>) _param_timeout,
 		(ParamFloat<px4::params::COM_OVL_DEV>) _param_deviation,
 		(ParamInt<px4::params::COM_OVL_MASK>) _param_modes,
@@ -60,6 +64,8 @@ private:
 		(ParamFloat<px4::params::MPC_ACC_HOR>) _param_acceleration_xy,
 		(ParamFloat<px4::params::MPC_ACC_UP_MAX>) _param_acceleration_up,
 		(ParamFloat<px4::params::MPC_ACC_DOWN_MAX>) _param_acceleration_down,
-		(ParamFloat<px4::params::MPC_JERK_AUTO>) _param_jerk
+		(ParamFloat<px4::params::MPC_JERK_AUTO>) _param_jerk,
+		(ParamFloat<px4::params::MPC_YAWRAUTO_MAX>) _param_yawspeed,
+		(ParamFloat<px4::params::MPC_YAWRAUTO_ACC>) _param_yaw_acceleration
 	)
 };

@@ -9,4 +9,5 @@ uint8 action
 char[25] name
 uint32 applicable_modes # VehicleStatus navigation-state bitmask; nonzero
 float32 max_deviation # Requested local reference radius from vehicle position, m
+bool yaw_authority # Request heading authority for REPLACE outputs; COM_OVL_YAW decides the grant
 uint8 ORB_QUEUE_LENGTH = 4
