@@ -196,6 +196,8 @@ public:
 			return false;
 		}
 
+		// The reference holds at PX4 reception; a publisher stamp only counts when fresh.
+		_setpoint_at = (output.timestamp != 0 && fresh(now, output.timestamp)) ? output.timestamp : now;
 		_accepted_at = now;
 		_sequence = output.sequence;
 		_accepted_intent_at = intent.timestamp;
@@ -231,8 +233,11 @@ public:
 		}
 
 		if (_action == mode_overlay_output_s::ACTION_REPLACE) {
+			// Continue the reference along its own derivatives between companion outputs.
+			const trajectory_setpoint_s reference = propagate(_setpoint, now);
+
 			// The vehicle and operator limits may have changed since reception.
-			if (!withinLimits(_setpoint) || !withinRadius(matrix::Vector3f(_setpoint.position), position)) {
+			if (!withinLimits(_setpoint) || !withinRadius(matrix::Vector3f(reference.position), position)) {
 				_ready = false;
 				_failed = true;
 				_braking = true;
@@ -242,7 +247,7 @@ public:
 
 			const float yaw = effective.yaw;
 			const float yawspeed = effective.yawspeed;
-			effective = _setpoint;
+			effective = reference;
 			effective.timestamp = now;
 			effective.yaw = yaw; // The overlay has no yaw authority.
 			effective.yawspeed = yawspeed;
@@ -322,11 +327,32 @@ private:
 		       (reference - position).norm() <= math::min(_max_deviation, _config.max_deviation);
 	}
 
+	/**
+	 * Advance a full-state reference by its age since reception, at most the response timeout.
+	 * Position, velocity and acceleration follow the reference jerk exactly (a cubic segment).
+	 */
+	trajectory_setpoint_s propagate(const trajectory_setpoint_s &setpoint, uint64_t now) const
+	{
+		const uint64_t age_us = now > _setpoint_at ? math::min(now - _setpoint_at, _config.timeout_us) : 0;
+		const float t = age_us * 1e-6f;
+		const matrix::Vector3f p{setpoint.position};
+		const matrix::Vector3f v{setpoint.velocity};
+		const matrix::Vector3f a{setpoint.acceleration};
+		const matrix::Vector3f j{setpoint.jerk};
+		trajectory_setpoint_s reference = setpoint;
+		(p + v * t + a * (0.5f * t * t) + j * (t * t * t / 6.f)).copyTo(reference.position);
+		(v + a * t + j * (0.5f * t * t)).copyTo(reference.velocity);
+		(a + j * t).copyTo(reference.acceleration);
+
+		return reference;
+	}
+
 	Config _config{};
 	Intent _history[HISTORY_SIZE] {};
 	trajectory_setpoint_s _setpoint{};
 	uint64_t _session{0}, _sequence{0}, _next_intent{0}, _accepted_intent{0};
 	uint64_t _accepted_at{0}, _accepted_intent_at{0}, _lease_at{0}, _context_since{0};
+	uint64_t _setpoint_at{0}; ///< PX4 reception time of the accepted reference
 	uint32_t _modes{0}, _estimator_reset{0}, _rejected{0};
 	float _max_deviation{0.f};
 	uint8_t _nav_state{0}, _action{mode_overlay_output_s::ACTION_STOP};

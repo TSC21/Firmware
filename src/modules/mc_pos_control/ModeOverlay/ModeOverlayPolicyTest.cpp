@@ -246,6 +246,99 @@ TEST_F(ModeOverlayPolicyTest, InvalidActionCannotPreserveReadiness)
 	EXPECT_TRUE(policy.failed());
 }
 
+TEST_F(ModeOverlayPolicyTest, ReplaceReferenceAdvancesBetweenOutputs)
+{
+	auto output = response();
+	output.setpoint.acceleration[0] = 0.2f;
+	output.setpoint.jerk[0] = 0.1f;
+	ASSERT_TRUE(policy.output(output, {}, now));
+	now += 10000; // one 100 Hz controller period later, before the next 50 Hz output
+	auto effective = raw;
+	ASSERT_EQ(policy.select(now, effective, {}), ModeOverlayPolicy::Selection::Replace);
+	const float t = 0.01f;
+	EXPECT_NEAR(effective.position[0], 1.f + 0.5f * t + 0.1f * t * t + 0.1f * t * t * t / 6.f, 1e-6f);
+	EXPECT_NEAR(effective.velocity[0], 0.5f + 0.2f * t + 0.05f * t * t, 1e-6f);
+	EXPECT_NEAR(effective.acceleration[0], 0.2f + 0.1f * t, 1e-6f);
+	EXPECT_FLOAT_EQ(effective.jerk[0], 0.1f);
+}
+
+TEST_F(ModeOverlayPolicyTest, PropagationStopsAtTheResponseTimeout)
+{
+	ASSERT_TRUE(policy.output(response(), {}, now));
+	// A publisher stamp older than the timeout does not reach back in time.
+	auto stale = response();
+	stale.sequence = 2;
+	stale.timestamp = now - 2 * config.timeout_us;
+	ASSERT_TRUE(policy.output(stale, {}, now));
+	auto effective = raw;
+	ASSERT_EQ(policy.select(now, effective, {}), ModeOverlayPolicy::Selection::Replace);
+	EXPECT_FLOAT_EQ(effective.position[0], 1.f);
+
+	// A fresh publisher stamp sets the epoch.
+	auto stamped = response();
+	stamped.sequence = 3;
+	stamped.timestamp = now - 20000;
+	ASSERT_TRUE(policy.output(stamped, {}, now));
+	ASSERT_EQ(policy.select(now, effective, {}), ModeOverlayPolicy::Selection::Replace);
+	EXPECT_NEAR(effective.position[0], 1.f + 0.5f * 0.02f, 1e-6f);
+
+	// An old but fresh stamp selected late advances the reference by the timeout, no further.
+	auto lagging = response();
+	lagging.sequence = 4;
+	lagging.timestamp = now - 250000;
+	ASSERT_TRUE(policy.output(lagging, {}, now));
+	now += 100000;
+	ASSERT_EQ(policy.select(now, effective, {1.f, 0.f, 0.f}), ModeOverlayPolicy::Selection::Replace);
+	EXPECT_NEAR(effective.position[0], 1.f + 0.5f * config.timeout_us * 1e-6f, 1e-6f);
+}
+
+TEST_F(ModeOverlayPolicyTest, HighSpeedTrackingLagDoesNotTripAuthorityChecks)
+{
+	// 8 m/s straight line, 50 Hz responses sampled 40 ms ahead, a controller at 100 and
+	// 250 Hz and a vehicle 0.5 m behind the reference: nothing may be rejected.
+	for (const uint64_t period_us : {10000ull, 4000ull}) {
+		policy = ModeOverlayPolicy{};
+		policy.configure(config);
+		ASSERT_EQ(policy.request(request(), false, now).result, mode_overlay_reply_s::RESULT_ACCEPTED);
+		policy.updateContext(now, true, vehicle_status_s::NAVIGATION_STATE_OFFBOARD, 0, true);
+		const float speed = 8.f;
+		const float lookahead = 0.04f;
+		const float lag = 0.5f;
+		uint64_t sequence = 0;
+		uint64_t start = now;
+		ModeOverlayPolicy::Config fast = config;
+		fast.max_velocity_xy = 10.f;
+		policy.configure(fast);
+
+		for (uint64_t t = start; t < start + 2000000; t += period_us) {
+			const float time = (t - start) * 1e-6f;
+			const float along_track = speed * time - lag;
+			const matrix::Vector3f vehicle{along_track, 0.f, -2.f};
+
+			if ((t - start) % 20000 < period_us) {
+				mode_overlay_output_s output{};
+				output.session_id = policy.session();
+				output.intent_id = policy.input(t, raw).intent_id;
+				output.sequence = ++sequence;
+				output.ready = true;
+				output.action = mode_overlay_output_s::ACTION_REPLACE;
+				output.setpoint.position[0] = speed * (time + lookahead);
+				output.setpoint.position[2] = -2.f;
+				output.setpoint.velocity[0] = speed;
+				ASSERT_TRUE(policy.output(output, vehicle, t));
+			}
+
+			auto effective = raw;
+			ASSERT_EQ(policy.select(t, effective, vehicle), ModeOverlayPolicy::Selection::Replace);
+			// The propagated reference is continuous: always 40 ms ahead of the controller time.
+			EXPECT_NEAR(effective.position[0], speed * (time + lookahead), 1e-3f);
+		}
+
+		EXPECT_FALSE(policy.failed());
+		EXPECT_EQ(policy.status(start).rejected_outputs, 0u);
+	}
+}
+
 TEST_F(ModeOverlayPolicyTest, DirectionalAccelerationLimits)
 {
 	config.max_acceleration_xy = 5.f;
