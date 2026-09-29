@@ -83,6 +83,7 @@
 #include <uORB/topics/gimbal_device_information.h>
 #include <uORB/topics/gimbal_device_attitude_status.h>
 #include <uORB/topics/rtcm_data.h>
+#include <uORB/topics/external_gimbal_manager_status.h>
 #include <uORB/topics/home_position.h>
 #include <uORB/topics/input_rc.h>
 #include <uORB/topics/irlock_report.h>
@@ -102,7 +103,7 @@
 #include <uORB/topics/radio_status.h>
 #include <uORB/topics/rc_channels.h>
 #include <uORB/topics/sensor_baro.h>
-#include <uORB/topics/sensor_gps.h>
+#include <uORB/topics/sensor_gnss.h>
 #include <uORB/topics/sensor_optical_flow.h>
 #include <uORB/topics/telemetry_status.h>
 #include <uORB/topics/transponder_report.h>
@@ -238,6 +239,7 @@ private:
 	void handle_message_gimbal_manager_set_manual_control(mavlink_message_t *msg);
 	void handle_message_gimbal_device_information(mavlink_message_t *msg);
 	void handle_message_gimbal_device_attitude_status(mavlink_message_t *msg);
+	void handle_message_gimbal_manager_status(mavlink_message_t *msg);
 	void handle_message_global_position_sensor(mavlink_message_t *msg);
 #if defined(MAVLINK_MSG_ID_RANGING_BEACON)
 	void handle_message_ranging_beacon(mavlink_message_t *msg);
@@ -348,6 +350,13 @@ private:
 	uORB::Publication<gimbal_manager_set_manual_control_s>	_gimbal_manager_set_manual_control_pub{ORB_ID(gimbal_manager_set_manual_control)};
 	uORB::Publication<gimbal_device_information_s>		_gimbal_device_information_pub{ORB_ID(gimbal_device_information)};
 	uORB::Publication<gimbal_device_attitude_status_s>	_gimbal_device_attitude_status_pub{ORB_ID(gimbal_device_attitude_status)};
+	uORB::Publication<external_gimbal_manager_status_s>	_external_gimbal_manager_status_pub{ORB_ID(external_gimbal_manager_status)};
+
+	// Component ids known to be external gimbal managers, so we don't treat their
+	// gimbal device information as our own. One bit per component id (0-255).
+	uint32_t _external_gimbal_manager_compid_bits[8] {};
+	void _markExternalGimbalManager(uint8_t compid) { _external_gimbal_manager_compid_bits[compid >> 5] |= (1u << (compid & 31)); }
+	bool _isExternalGimbalManager(uint8_t compid) const { return (_external_gimbal_manager_compid_bits[compid >> 5] & (1u << (compid & 31))) != 0; }
 	uORB::Publication<irlock_report_s>			_irlock_report_pub{ORB_ID(irlock_report)};
 	uORB::Publication<landing_target_pose_s>		_landing_target_pose_pub{ORB_ID(landing_target_pose)};
 	uORB::Publication<log_message_s>			_log_message_pub{ORB_ID(log_message)};
@@ -403,7 +412,7 @@ private:
 	uORB::PublicationMulti<ping_s>				_ping_pub{ORB_ID(ping)};
 	uORB::PublicationMulti<radio_status_s>			_radio_status_pub{ORB_ID(radio_status)};
 	uORB::PublicationMulti<sensor_baro_s>			_sensor_baro_pub{ORB_ID(sensor_baro)};
-	uORB::PublicationMulti<sensor_gps_s>			_sensor_gps_pub{ORB_ID(sensor_gps)};
+	uORB::PublicationMulti<sensor_gnss_s>			_sensor_gnss_pub{ORB_ID(sensor_gnss)};
 	uORB::PublicationMulti<sensor_optical_flow_s>           _sensor_optical_flow_pub{ORB_ID(sensor_optical_flow)};
 	gnss::GpsRtcmMessageAssembler				_gps_rtcm_message_assembler {};
 

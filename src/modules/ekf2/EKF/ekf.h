@@ -404,9 +404,8 @@ public:
 	// set minimum continuous period without GPS fail required to mark a healthy GPS status
 	void set_min_required_gps_health_time(uint32_t time_us) { _min_gps_health_time_us = time_us; }
 
-	const GnssChecks::gps_check_fail_status_u &gps_check_fail_status() const { return _gnss_checks.getFailStatus(); }
-	const decltype(GnssChecks::gps_check_fail_status_u::flags) &gps_check_fail_status_flags() const { return _gnss_checks.getFailStatus().flags; }
-	uint16_t gps_check_fail_status_enabled_mask() const { return _gnss_checks.getEnabledChecksFailStatusMask(); }
+	uint16_t gps_check_fail_flags() const { return _gnss_checks.getFailFlags(); }
+	uint16_t gps_checks_enabled() const { return _gnss_checks.getEnabledChecks(); }
 
 	bool gps_checks_passed() const { return _gnss_checks.passed(); };
 
@@ -626,6 +625,7 @@ private:
 
 # if defined(CONFIG_EKF2_GNSS_YAW)
 	estimator_aid_source1d_s _aid_src_gnss_yaw {};
+	uint64_t _time_last_gnss_yaw_fail_us{0}; ///< last fusion failure or spoofing/jamming report of the heading receiver
 # endif // CONFIG_EKF2_GNSS_YAW
 #endif // CONFIG_EKF2_GNSS
 
@@ -945,7 +945,7 @@ private:
 	bool isGnssHgtResetAllowed();
 
 # if defined(CONFIG_EKF2_GNSS_YAW)
-	void controlGnssYawFusion(const gnssSample &gps_sample);
+	void controlGnssYawFusion(const imuSample &imu_delayed);
 	void stopGnssYawFusion();
 
 	// fuse the yaw angle obtained from a dual antenna GPS unit
@@ -955,7 +955,7 @@ private:
 	// return true if the reset was successful
 	bool resetYawToGnss(float gnss_yaw, float gnss_yaw_offset);
 
-	void updateGnssYaw(const gnssSample &gps_sample);
+	void updateGnssYaw(const gnssYawSample &gnss_yaw_sample);
 
 # endif // CONFIG_EKF2_GNSS_YAW
 
@@ -968,6 +968,10 @@ private:
 
 	// yaw estimator instance
 	EKFGSF_yaw _yawEstimator{};
+
+	uint64_t _time_yaw_estimator_activated_us{0};
+	bool _yaw_estimator_was_active_in_air{false};
+	bool _yaw_estimator_restarted_in_air{false};
 
 #endif // CONFIG_EKF2_GNSS
 

@@ -92,7 +92,7 @@ MavlinkReceiver::~MavlinkReceiver()
 	_ping_pub.unadvertise();
 	_radio_status_pub.unadvertise();
 	_sensor_baro_pub.unadvertise();
-	_sensor_gps_pub.unadvertise();
+	_sensor_gnss_pub.unadvertise();
 	_sensor_optical_flow_pub.unadvertise();
 }
 
@@ -364,6 +364,10 @@ MavlinkReceiver::handle_message(mavlink_message_t *msg)
 		handle_message_gimbal_device_attitude_status(msg);
 		break;
 
+	case MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS:
+		handle_message_gimbal_manager_status(msg);
+		break;
+
 #if defined(MAVLINK_MSG_ID_SET_VELOCITY_LIMITS) // For now only defined if development.xml is used
 
 	case MAVLINK_MSG_ID_SET_VELOCITY_LIMITS:
@@ -483,6 +487,17 @@ void MavlinkReceiver::handle_messages_in_gimbal_mode(mavlink_message_t &msg)
 
 	case MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS:
 		handle_message_gimbal_device_attitude_status(&msg);
+		break;
+
+	case MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS:
+		// The component on this link might be an external gimbal manager.
+		handle_message_gimbal_manager_status(&msg);
+		break;
+
+	case MAVLINK_MSG_ID_COMMAND_ACK:
+		// Needed for the commands we send (e.g. DO_GIMBAL_MANAGER_CONFIGURE),
+		// otherwise they are retried until they time out.
+		handle_message_command_ack(&msg);
 		break;
 
 	case MAVLINK_MSG_ID_COMMAND_LONG: {
@@ -2713,7 +2728,7 @@ MavlinkReceiver::handle_message_hil_gps(mavlink_message_t *msg)
 	mavlink_hil_gps_t hil_gps;
 	mavlink_msg_hil_gps_decode(msg, &hil_gps);
 
-	sensor_gps_s gps{};
+	sensor_gnss_s gnss{};
 
 	device::Device::DeviceId device_id;
 	device_id.devid_s.bus_type = device::Device::DeviceBusType::DeviceBusType_MAVLINK;
@@ -2721,48 +2736,45 @@ MavlinkReceiver::handle_message_hil_gps(mavlink_message_t *msg)
 	device_id.devid_s.address = msg->sysid;
 	device_id.devid_s.devtype = DRV_GPS_DEVTYPE_SIM;
 
-	gps.device_id = device_id.devid;
+	gnss.device_id = device_id.devid;
 
-	gps.latitude_deg = hil_gps.lat * 1e-7;
-	gps.longitude_deg = hil_gps.lon * 1e-7;
-	gps.altitude_msl_m = hil_gps.alt * 1e-3;
-	gps.altitude_ellipsoid_m = hil_gps.alt * 1e-3;
+	gnss.latitude = hil_gps.lat * 1e-7;
+	gnss.longitude = hil_gps.lon * 1e-7;
+	gnss.altitude_msl = hil_gps.alt * 1e-3;
+	gnss.altitude_ellipsoid = hil_gps.alt * 1e-3;
 
-	gps.s_variance_m_s = 0.25f;
-	gps.c_variance_rad = 0.5f;
-	gps.fix_type = hil_gps.fix_type;
+	gnss.speed_accuracy = 0.25f;
+	gnss.course_accuracy = 0.5f;
+	gnss.fix_type = hil_gps.fix_type;
 
-	gps.eph = (float)hil_gps.eph * 1e-2f; // cm -> m
-	gps.epv = (float)hil_gps.epv * 1e-2f; // cm -> m
+	gnss.eph = (float)hil_gps.eph * 1e-2f; // cm -> m
+	gnss.epv = (float)hil_gps.epv * 1e-2f; // cm -> m
 
-	gps.hdop = 0; // TODO
-	gps.vdop = 0; // TODO
+	gnss.hdop = 0; // TODO
+	gnss.vdop = 0; // TODO
 
-	gps.noise_per_ms = 0;
-	gps.automatic_gain_control = 0;
-	gps.jamming_indicator = 0;
-	gps.jamming_state = 0;
-	gps.spoofing_state = 0;
+	gnss.noise = 0;
+	gnss.automatic_gain_control = 0;
+	gnss.jamming_indicator = 0;
+	gnss.jamming_state = 0;
+	gnss.spoofing_state = 0;
 
-	gps.vel_m_s = (float)(hil_gps.vel) / 100.0f; // cm/s -> m/s
-	gps.vel_n_m_s = (float)(hil_gps.vn) / 100.0f; // cm/s -> m/s
-	gps.vel_e_m_s = (float)(hil_gps.ve) / 100.0f; // cm/s -> m/s
-	gps.vel_d_m_s = (float)(hil_gps.vd) / 100.0f; // cm/s -> m/s
-	gps.cog_rad = ((hil_gps.cog == 65535) ? (float)NAN : matrix::wrap_2pi(math::radians(
+	gnss.ground_speed = (float)(hil_gps.vel) / 100.0f; // cm/s -> m/s
+	gnss.vel_north = (float)(hil_gps.vn) / 100.0f; // cm/s -> m/s
+	gnss.vel_east = (float)(hil_gps.ve) / 100.0f; // cm/s -> m/s
+	gnss.vel_down = (float)(hil_gps.vd) / 100.0f; // cm/s -> m/s
+	gnss.course = ((hil_gps.cog == 65535) ? (float)NAN : matrix::wrap_2pi(math::radians(
 				hil_gps.cog * 1e-2f))); // cdeg -> rad
-	gps.vel_ned_valid = true;
+	gnss.vel_ned_valid = true;
 
-	gps.timestamp_time_relative = 0;
-	gps.time_utc_usec = hil_gps.time_usec;
+	gnss.timestamp_time_relative = 0;
+	gnss.time_utc_usec = hil_gps.time_usec;
 
-	gps.satellites_used = hil_gps.satellites_visible;
+	gnss.satellites_used = hil_gps.satellites_visible;
 
-	gps.heading = NAN;
-	gps.heading_offset = NAN;
+	gnss.timestamp = hrt_absolute_time();
 
-	gps.timestamp = hrt_absolute_time();
-
-	_sensor_gps_pub.publish(gps);
+	_sensor_gnss_pub.publish(gnss);
 }
 
 void
@@ -3629,6 +3641,14 @@ MavlinkReceiver::handle_message_gimbal_manager_set_attitude(mavlink_message_t *m
 void
 MavlinkReceiver::handle_message_gimbal_device_information(mavlink_message_t *msg)
 {
+	// Don't ingest device information from a component we know to be an external
+	// gimbal manager: that gimbal is not ours to manage, and treating its device
+	// info as our own would corrupt our own gimbal device discovery (our
+	// OutputMavlinkV2 would latch onto the foreign device id). The message is
+	// still forwarded to the ground station by the mavlink message forwarding.
+	if (_isExternalGimbalManager(msg->compid)) {
+		return;
+	}
 
 	mavlink_gimbal_device_information_t gimbal_device_info_msg;
 	mavlink_msg_gimbal_device_information_decode(msg, &gimbal_device_info_msg);
@@ -3645,9 +3665,10 @@ MavlinkReceiver::handle_message_gimbal_device_information(mavlink_message_t *msg
 	memcpy(gimbal_information.vendor_name, gimbal_device_info_msg.vendor_name, sizeof(gimbal_information.vendor_name));
 	memcpy(gimbal_information.model_name, gimbal_device_info_msg.model_name, sizeof(gimbal_information.model_name));
 	memcpy(gimbal_information.custom_name, gimbal_device_info_msg.custom_name, sizeof(gimbal_information.custom_name));
-	gimbal_device_info_msg.vendor_name[sizeof(gimbal_device_info_msg.vendor_name) - 1] = '\0';
-	gimbal_device_info_msg.model_name[sizeof(gimbal_device_info_msg.model_name) - 1] = '\0';
-	gimbal_device_info_msg.custom_name[sizeof(gimbal_device_info_msg.custom_name) - 1] = '\0';
+	// Terminate the published fields, not the decoded message we are about to discard
+	gimbal_information.vendor_name[sizeof(gimbal_information.vendor_name) - 1] = '\0';
+	gimbal_information.model_name[sizeof(gimbal_information.model_name) - 1] = '\0';
+	gimbal_information.custom_name[sizeof(gimbal_information.custom_name) - 1] = '\0';
 
 	gimbal_information.firmware_version = gimbal_device_info_msg.firmware_version;
 	gimbal_information.hardware_version = gimbal_device_info_msg.hardware_version;
@@ -3691,6 +3712,39 @@ MavlinkReceiver::handle_message_gimbal_device_attitude_status(mavlink_message_t 
 	gimbal_attitude_status.gimbal_device_id = gimbal_device_attitude_status_msg.gimbal_device_id;
 
 	_gimbal_device_attitude_status_pub.publish(gimbal_attitude_status);
+}
+
+void
+MavlinkReceiver::handle_message_gimbal_manager_status(mavlink_message_t *msg)
+{
+	// Ignore our own gimbal manager: PX4 streams this itself from the autopilot
+	// component, and we only care about external gimbal managers here.
+	// Also ignore gimbal managers of other systems (e.g. forwarded from another
+	// vehicle), only a manager on our vehicle is ours to talk to.
+	if (msg->sysid != mavlink_system.sysid || msg->compid == mavlink_system.compid) {
+		return;
+	}
+
+	// Remember that this component is an external gimbal manager, so we don't
+	// mistake its gimbal device information for our own (see
+	// handle_message_gimbal_device_information).
+	_markExternalGimbalManager(msg->compid);
+
+	mavlink_gimbal_manager_status_t status_msg;
+	mavlink_msg_gimbal_manager_status_decode(msg, &status_msg);
+
+	external_gimbal_manager_status_s status{};
+	status.timestamp = hrt_absolute_time();
+	status.manager_sysid = msg->sysid;
+	status.manager_compid = msg->compid;
+	status.flags = status_msg.flags;
+	status.gimbal_device_id = status_msg.gimbal_device_id;
+	status.primary_control_sysid = status_msg.primary_control_sysid;
+	status.primary_control_compid = status_msg.primary_control_compid;
+	status.secondary_control_sysid = status_msg.secondary_control_sysid;
+	status.secondary_control_compid = status_msg.secondary_control_compid;
+
+	_external_gimbal_manager_status_pub.publish(status);
 }
 
 void MavlinkReceiver::handle_message_open_drone_id_basic_id(mavlink_message_t *msg)
@@ -3854,6 +3908,8 @@ MavlinkReceiver::run()
 #if defined(MAVLINK_UDP)
 
 			else if (_mavlink.get_protocol() == Protocol::UDP) {
+				nread = 0;
+
 				if (fds[0].revents & POLLIN) {
 					nread = recvfrom(_mavlink.get_socket_fd(), buf, sizeof(buf), 0, (struct sockaddr *)&srcaddr, &addrlen);
 				}
@@ -3878,6 +3934,24 @@ MavlinkReceiver::run()
 						_mavlink.set_client_source_initialized();
 
 						PX4_INFO("partner IP: %s", inet_ntoa(srcaddr.sin_addr));
+					}
+
+				} else if (nread > 0) {
+					if ((srcaddr.sin_addr.s_addr == srcaddr_last.sin_addr.s_addr)
+					    && (srcaddr.sin_port == srcaddr_last.sin_port)) {
+						// Our client is still there, keep the address latched.
+						_mavlink.mark_client_source_seen();
+
+					} else if (_mavlink.client_source_can_be_replaced()) {
+						// Our client stopped talking to us a while ago and someone else is
+						// talking to us now. This is what a client which was restarted looks
+						// like, as it comes back with a new source port, so switch over to it.
+						srcaddr_last.sin_addr.s_addr = srcaddr.sin_addr.s_addr;
+						srcaddr_last.sin_port = srcaddr.sin_port;
+
+						_mavlink.set_client_source_initialized();
+
+						PX4_INFO("new partner IP: %s:%d", inet_ntoa(srcaddr.sin_addr), ntohs(srcaddr.sin_port));
 					}
 				}
 			}

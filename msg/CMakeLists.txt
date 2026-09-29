@@ -93,6 +93,7 @@ set(msg_files
 	EstimatorStatus.msg
 	EstimatorStatusFlags.msg
 	versioned/Event.msg
+	ExternalGimbalManagerStatus.msg
 	FigureEightStatus.msg
 	FailsafeFlags.msg
 	FailureDetectorStatus.msg
@@ -117,6 +118,7 @@ set(msg_files
 	GimbalManagerInformation.msg
 	GimbalManagerSetAttitude.msg
 	GimbalManagerSetManualControl.msg
+	GimbalManagerSetPitchyaw.msg
 	GimbalManagerStatus.msg
 	GpioConfig.msg
 	GpioIn.msg
@@ -209,10 +211,10 @@ set(msg_files
 	SensorBaro.msg
 	SensorCombined.msg
 	SensorCorrection.msg
+	SensorGnss.msg
 	SensorGnssRelative.msg
 	SensorGnssRf.msg
 	SensorGnssStatus.msg
-	SensorGps.msg
 	SensorGyro.msg
 	SensorGyroFft.msg
 	SensorGyroFifo.msg
@@ -245,6 +247,8 @@ set(msg_files
 	VehicleAirData.msg
 	VehicleConstraints.msg
 	VehicleControlMode.msg
+	VehicleGnss.msg
+	VehicleGnssHeading.msg
 	VehicleImu.msg
 	VehicleImuStatus.msg
 	VehicleLocalPositionSetpoint.msg
