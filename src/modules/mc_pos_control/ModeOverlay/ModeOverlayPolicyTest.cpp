@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <random>
 
 class ModeOverlayPolicyTest : public ::testing::Test
 {
@@ -514,5 +515,55 @@ TEST_F(ModeOverlayPolicyTest, DefaultHeadingBehaviourIsUnchanged)
 			EXPECT_EQ(std::memcmp(&yaw, &base_yaw, sizeof(float)), 0);
 			EXPECT_EQ(std::memcmp(&yawspeed, &base_yawspeed, sizeof(float)), 0);
 		}
+	}
+}
+
+TEST_F(ModeOverlayPolicyTest, PropagationIsTheExactConstantJerkContinuation)
+{
+	// Property test: for random full states inside the limits and random ages up to the timeout,
+	// the selected reference equals the exact cubic continuation p + v t + a t^2/2 + j t^3/6
+	// (float resolution), and consecutive selections of one output are continuous.
+	std::mt19937 generator(20260929);
+	std::uniform_real_distribution<float> unit(-1.f, 1.f);
+	uint64_t sequence = 0;
+
+	for (int trial = 0; trial < 500; ++trial) {
+		auto output = response();
+		output.sequence = ++sequence;
+		const matrix::Vector3f p{unit(generator), unit(generator), unit(generator)};
+		// Horizontal and vertical parts inside the fixture's directional limits.
+		const matrix::Vector3f v{0.7f * config.max_velocity_xy * unit(generator), 0.f, 0.9f * config.max_velocity_down * unit(generator)};
+		const matrix::Vector3f a{0.7f * config.max_acceleration_xy * unit(generator), 0.f,
+					 0.9f * fminf(config.max_acceleration_up, config.max_acceleration_down) *unit(generator)};
+		const matrix::Vector3f j = matrix::Vector3f{unit(generator), unit(generator), unit(generator)}.normalized()
+					   * 0.9f * config.max_jerk *fabsf(unit(generator));
+		p.copyTo(output.setpoint.position);
+		v.copyTo(output.setpoint.velocity);
+		a.copyTo(output.setpoint.acceleration);
+		j.copyTo(output.setpoint.jerk);
+		ASSERT_TRUE(policy.output(output, p, now));
+		const uint64_t age_us = static_cast<uint64_t>(fabsf(unit(generator)) * 0.9f * config.timeout_us);
+		const float t = age_us * 1e-6f;
+		auto effective = raw;
+		const matrix::Vector3f vehicle = p + v * t;
+		ASSERT_EQ(policy.select(now + age_us, effective, vehicle), ModeOverlayPolicy::Selection::Replace);
+		const matrix::Vector3f expected_p = p + v * t + a * (t * t / 2.f) + j * (t * t * t / 6.f);
+		const matrix::Vector3f expected_v = v + a * t + j * (t * t / 2.f);
+		const matrix::Vector3f expected_a = a + j * t;
+
+		for (int i = 0; i < 3; ++i) {
+			EXPECT_NEAR(effective.position[i], expected_p(i), 1e-5f);
+			EXPECT_NEAR(effective.velocity[i], expected_v(i), 1e-5f);
+			EXPECT_NEAR(effective.acceleration[i], expected_a(i), 1e-5f);
+			EXPECT_FLOAT_EQ(effective.jerk[i], j(i));
+		}
+
+		// One controller period later the reference has moved by its own derivatives only.
+		auto next = raw;
+		ASSERT_EQ(policy.select(now + age_us + 4000, next, vehicle), ModeOverlayPolicy::Selection::Replace);
+		const matrix::Vector3f step = matrix::Vector3f(next.position) - matrix::Vector3f(effective.position);
+		EXPECT_LE(step.norm(), (expected_v.norm() + expected_a.norm() * 0.004f + j.norm() * 1.6e-5f) * 0.004f + 1e-5f);
+		now += 20000;
+		policy.updateContext(now, true, vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION, 0, true);
 	}
 }

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <random>
 
 namespace
 {
@@ -284,4 +285,68 @@ TEST(ModeOverlayHeadingTest, ResetAndInvalidPeriodsAreSafe)
 	EXPECT_TRUE(std::isnan(heading.yaw()));
 	heading.shift(1.f);
 	EXPECT_TRUE(std::isnan(heading.yaw()));
+}
+
+TEST(ModeOverlayHeadingTest, RandomTargetsRespectTheLimitsAndConvergeTimeOptimally)
+{
+	// Property test: from rest to a random heading at rest, the reference respects both limits,
+	// never passes the target and arrives within four periods of the continuous time-optimal
+	// rest-to-rest time T* = 2 sqrt(d / a) (or d / w + w / a when the rate limit w is reached):
+	// the acceleration changes only at period boundaries, so each of the up to three switches
+	// of the bang-bang profile and the final exact step can each cost at most one period.
+	// A feasible moving target is then followed exactly.
+	std::mt19937 generator(20260929);
+	std::uniform_real_distribution<float> fraction(0.f, 1.f);
+
+	for (int trial = 0; trial < 300; ++trial) {
+		const ModeOverlayHeading::Limits limits{0.3f + 2.7f * fraction(generator), 0.2f + 4.8f * fraction(generator)};
+		const float dt = (trial % 2) ? 0.004f : 0.01f;
+		const float start = M_PI_F * (2.f * fraction(generator) - 1.f);
+		const float delta = M_PI_F * 0.99f * (2.f * fraction(generator) - 1.f);
+		const float target = matrix::wrap_pi(start + delta);
+		const float distance = fabsf(delta);
+		const float optimal = sqrtf(limits.acceleration * distance) <= limits.rate
+				      ? 2.f * sqrtf(distance / limits.acceleration)
+				      : distance / limits.rate + limits.rate / limits.acceleration;
+		SCOPED_TRACE(testing::Message() << "trial " << trial << " delta " << delta);
+
+		ModeOverlayHeading heading;
+		heading.update(start, 0.f, kNan, kNan, false, start, dt, limits);
+		float rate = 0.f;
+		float progress = 0.f;
+		float max_rate = 0.f;
+		float max_acceleration = 0.f;
+		int steps = 0;
+
+		for (; steps < 100000; ++steps) {
+			heading.update(start, 0.f, target, 0.f, false, start, dt, limits);
+			max_rate = fmaxf(max_rate, fabsf(heading.yawspeed()));
+			max_acceleration = fmaxf(max_acceleration, fabsf(heading.yawspeed() - rate) / dt);
+			rate = heading.yawspeed();
+			progress = fmaxf(progress, matrix::sign(delta) * matrix::wrap_pi(heading.yaw() - start));
+
+			if (sameBits(heading.yaw(), target) && sameBits(heading.yawspeed(), 0.f)) { break; }
+		}
+
+		EXPECT_LE(max_rate, limits.rate * (1.f + 1e-5f));
+		EXPECT_LE(max_acceleration, limits.acceleration * (1.f + 1e-4f) + 1e-4f / dt);
+		EXPECT_LE(progress, distance + 1e-5f);
+		EXPECT_LE((steps + 1) * dt, optimal + 4.f * dt + 1e-4f);
+
+		// Then a feasible turning target from the reached heading and rate is tracked exactly.
+		const float turn_rate = 0.5f * limits.rate * (2.f * fraction(generator) - 1.f);
+		const float turn_acceleration = 0.5f * limits.acceleration;
+		float moving = target;
+		float moving_rate = 0.f;
+
+		for (int i = 0; i < 400; ++i) {
+			const float next = fabsf(turn_rate - moving_rate) <= turn_acceleration * dt ? turn_rate :
+					   moving_rate + matrix::sign(turn_rate - moving_rate) * turn_acceleration * dt;
+			moving = matrix::wrap_pi(moving + 0.5f * (moving_rate + next) * dt);
+			moving_rate = next;
+			heading.update(start, 0.f, moving, moving_rate, false, start, dt, limits);
+			ASSERT_NEAR(matrix::wrap_pi(heading.yaw() - moving), 0.f, 1e-5f) << "step " << i;
+			ASSERT_NEAR(heading.yawspeed(), moving_rate, 1e-5f) << "step " << i;
+		}
+	}
 }
