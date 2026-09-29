@@ -93,19 +93,20 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 	const auto status = _policy.status(now);
 
 	if (selection == ModeOverlayPolicy::Selection::Brake) {
+		const ModeOverlayBrake::Limits brake_limits{config.max_acceleration_xy, config.max_acceleration_up,
+				config.max_acceleration_down, config.max_jerk};
+
 		if (!_brake_active || _brake_epoch != status.reset_counter) {
 			_brake_yaw = PX4_ISFINITE(local.heading) ? local.heading : 0.f;
 			_brake_epoch = status.reset_counter;
-			_brake.start(position, velocity, acceleration);
+			_brake.start(position, velocity, acceleration, brake_limits);
 		}
 
 		_brake_active = true;
 		effective.timestamp = now;
 		effective.yaw = _brake_yaw;
 		effective.yawspeed = 0.f;
-		const ModeOverlayBrake::Limits limits{config.max_acceleration_xy, config.max_acceleration_up,
-						      config.max_acceleration_down, config.max_jerk};
-		_brake.update(dt, limits, effective);
+		_brake.update(dt, effective);
 
 	} else {
 		_brake_active = false;

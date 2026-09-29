@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <limits>
+#include <random>
 
 using matrix::Vector3f;
 
@@ -42,13 +43,13 @@ Result run(const Vector3f &velocity, const Vector3f &acceleration, const ModeOve
 {
 	ModeOverlayBrake brake;
 	const Vector3f origin{10.f, -20.f, -5.f};
-	brake.start(origin, velocity, acceleration);
+	brake.start(origin, velocity, acceleration, limits);
 	const Vector3f direction = velocity.unit_or_zero();
 	Result result{};
 	trajectory_setpoint_s setpoint{};
 
 	for (int i = 0; i < 2000; ++i) {
-		brake.update(kDt, limits, setpoint);
+		brake.update(kDt, setpoint);
 		const Vector3f position{setpoint.position};
 		const Vector3f v{setpoint.velocity};
 		const Vector3f a{setpoint.acceleration};
@@ -120,10 +121,21 @@ TEST(ModeOverlayBrakeTest, NeverStartsByAcceleratingForward)
 	EXPECT_LE(accelerating.first_acceleration, 0.f);
 	EXPECT_NEAR(accelerating.final_position(0) - 10.f, 8.25f, kDistanceTolerance);
 
-	// Already decelerating harder than the limit still ends at rest, sooner.
+	// Decelerating harder than the limit starts at the limit and ends at rest, sooner.
 	const Result decelerating = run({kHighSpeed, 0.f, 0.f}, {-5.f, 0.f, 0.f});
 	EXPECT_LT(decelerating.final_position(0) - 10.f, 8.25f);
 	EXPECT_LT(decelerating.steps, 2000);
+}
+
+TEST(ModeOverlayBrakeTest, NeverReversesWhenAlreadyDeceleratingHard)
+{
+	// At 0.5 m/s the jerk limit unwinds at most sqrt(2 J v) = 2 m/s^2 of deceleration before
+	// rest; starting from -3 m/s^2 unclamped would reverse the reference to -0.625 m/s.
+	const Result result = run({0.5f, 0.f, 0.f}, {-3.f, 0.f, 0.f});
+	EXPECT_GE(result.min_along_track_speed, -1e-5f);
+	EXPECT_NEAR(result.first_acceleration, -2.f + kLimits.jerk * kDt, 1e-4f);
+	EXPECT_GT(result.final_position(0) - 10.f, 0.f);
+	EXPECT_LT(result.steps, 2000);
 }
 
 TEST(ModeOverlayBrakeTest, DropsCrossTrackAccelerationInsteadOfSwerving)
@@ -141,10 +153,10 @@ TEST(ModeOverlayBrakeTest, StationaryOrInvalidEstimatesHoldPosition)
 
 	for (const Vector3f &velocity : {Vector3f{}, Vector3f{nan, 0.f, 0.f}}) {
 		ModeOverlayBrake brake;
-		brake.start({1.f, 2.f, -3.f}, velocity, {nan, 1.f, 1.f});
+		brake.start({1.f, 2.f, -3.f}, velocity, {nan, 1.f, 1.f}, kLimits);
 		trajectory_setpoint_s setpoint{};
 
-		for (int i = 0; i < 100; ++i) { brake.update(kDt, kLimits, setpoint); }
+		for (int i = 0; i < 100; ++i) { brake.update(kDt, setpoint); }
 
 		EXPECT_EQ(Vector3f(setpoint.position), Vector3f(1.f, 2.f, -3.f));
 		EXPECT_EQ(Vector3f(setpoint.velocity), Vector3f{});
@@ -161,4 +173,80 @@ TEST(ModeOverlayBrakeTest, LowSpeedStopWithoutReachingTheDecelerationLimit)
 		    kDistanceTolerance);
 	EXPECT_NEAR(result.final_position(0) - 10.f, 0.5f, kDistanceTolerance);
 	EXPECT_LT(result.max_acceleration, kLimits.acceleration_xy);
+}
+
+TEST(ModeOverlayBrakeTest, RandomStatesStayInsideTheLimitsAndTheTimeOptimalModel)
+{
+	// Property test over random directions, speeds, initial accelerations, limits and controller
+	// periods. With a zero initial along-track acceleration the stop must match the time-optimal
+	// collinear model (distance and duration within one controller period of motion); otherwise
+	// it may only be shorter. The reference never leaves the line and never exceeds the limits.
+	std::mt19937 generator(20260929);
+	std::uniform_real_distribution<float> unit(-1.f, 1.f);
+	std::uniform_real_distribution<float> fraction(0.f, 1.f);
+
+	for (int trial = 0; trial < 400; ++trial) {
+		Vector3f raw{unit(generator), unit(generator), 0.5f * unit(generator)};
+
+		if (raw.norm() < 0.1f) { raw = Vector3f{1.f, 0.f, 0.f}; }
+
+		const Vector3f direction = raw.normalized();
+		const ModeOverlayBrake::Limits limits{2.f + 6.f * fraction(generator), 2.f + 4.f * fraction(generator),
+						      2.f + 4.f * fraction(generator), 1.f + 19.f * fraction(generator)};
+		const float dt = (trial % 2) ? 0.004f : 0.01f;
+		const float speed = 0.05f + 9.95f * fraction(generator);
+		const float deceleration = ModeOverlayBrake::deceleration(direction, limits);
+		const bool from_rest_acceleration = trial % 4 == 0;
+		// Along-track acceleration up to twice the limit either way, plus an arbitrary cross-track part.
+		const float along = from_rest_acceleration ? 0.f : 2.f * deceleration * unit(generator);
+		const Vector3f across = Vector3f{unit(generator), unit(generator), unit(generator)} * deceleration;
+		const Vector3f acceleration = direction * along + (across - direction * across.dot(direction));
+		SCOPED_TRACE(testing::Message() << "trial " << trial << " speed " << speed << " along " << along);
+
+		ModeOverlayBrake brake;
+		const Vector3f origin{1.f, 2.f, -3.f};
+		brake.start(origin, direction * speed, acceleration, limits);
+		trajectory_setpoint_s setpoint{};
+		float max_acceleration = 0.f;
+		float max_jerk = 0.f;
+		float max_cross_track = 0.f;
+		float min_speed = INFINITY;
+		float stop_time = NAN;
+		const auto model = [&](float v) {
+			const float ramp = fminf(deceleration / limits.jerk, sqrtf(v / limits.jerk));
+			return std::pair<float, float> {0.5f * v *(2.f * ramp + fmaxf(0.f, v / (limits.jerk * ramp) - ramp)),
+							2.f *ramp + fmaxf(0.f, v / (limits.jerk * ramp) - ramp)
+						       };
+		};
+
+		for (int i = 1; i <= 20000; ++i) {
+			brake.update(dt, setpoint);
+			const Vector3f offset = Vector3f(setpoint.position) - origin;
+			const float v = Vector3f(setpoint.velocity).dot(direction);
+			max_acceleration = fmaxf(max_acceleration, Vector3f(setpoint.acceleration).norm());
+			max_jerk = fmaxf(max_jerk, Vector3f(setpoint.jerk).norm());
+			max_cross_track = fmaxf(max_cross_track, (offset - direction * offset.dot(direction)).norm());
+			min_speed = fminf(min_speed, v);
+
+			if (!PX4_ISFINITE(stop_time) && fabsf(v) < 1e-5f && Vector3f(setpoint.acceleration).norm() < 1e-4f) {
+				stop_time = i * dt;
+				break;
+			}
+		}
+
+		const float distance = (Vector3f(setpoint.position) - origin).dot(direction);
+		const auto [model_distance, model_time] = model(speed);
+		ASSERT_TRUE(PX4_ISFINITE(stop_time));
+		EXPECT_LT(max_cross_track, 1e-4f + 1e-5f * speed);
+		EXPECT_LE(max_acceleration, deceleration * 1.0001f + 1e-4f);
+		EXPECT_LE(max_jerk, limits.jerk * 1.0001f + 1e-4f);
+		EXPECT_GE(min_speed, -1e-4f);
+		EXPECT_LE(distance, model_distance + speed * dt * 0.01f + 1e-3f);
+
+		if (from_rest_acceleration) {
+			EXPECT_NEAR(distance, model_distance, speed * dt * 0.01f + 2e-3f);
+			// The stop is sampled once per period and detected one period after the last motion.
+			EXPECT_NEAR(stop_time, model_time, 2.f * dt);
+		}
+	}
 }

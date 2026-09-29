@@ -15,12 +15,18 @@
  * Jerk-limited stop along the direction of travel.
  *
  * The reference is the straight line through the estimated position along the
- * estimated velocity. One VelocitySmoothing profile drives the along-track speed
- * to zero with the full deceleration the directional limits allow along that
- * line, so all axes stay time-synchronized and the vector limits hold exactly.
+ * estimated velocity. One VelocitySmoothing profile, planned once at the start,
+ * drives the along-track speed to zero with the full deceleration the directional
+ * limits allow along that line, so all axes stay time-synchronized and the vector
+ * limits hold exactly. Evaluating the planned profile, instead of re-planning it
+ * every period, keeps it exact: re-planning from sampled states can coast for one
+ * period near the end and reverse the reference.
  * The profile starts from the along-track part of the estimated acceleration,
- * clamped to zero or below: the stop never begins by accelerating forward, and
- * the part across the line is dropped so the reference cannot swerve.
+ * clamped to [-min(A, sqrt(2 J v)), 0]: the stop never begins by accelerating
+ * forward, stays inside the deceleration limit A, and never decelerates harder
+ * than the jerk limit J can unwind before the speed v reaches zero, so the
+ * reference never reverses. The part across the line is dropped so the reference
+ * cannot swerve.
  */
 class ModeOverlayBrake
 {
@@ -34,14 +40,19 @@ public:
 
 	/** Start a stop from the estimated NED position [m], velocity [m/s] and acceleration [m/s^2]. */
 	void start(const matrix::Vector3f &position, const matrix::Vector3f &velocity,
-		   const matrix::Vector3f &acceleration)
+		   const matrix::Vector3f &acceleration, const Limits &limits)
 	{
 		_origin = position;
 		const float speed = velocity.isAllFinite() ? velocity.norm() : 0.f;
 		_direction = speed > FLT_EPSILON ? matrix::Vector3f(velocity / speed) : matrix::Vector3f{};
 		const float along_track = acceleration.isAllFinite() ? acceleration.dot(_direction) : 0.f;
-		_along_track.reset(math::min(along_track, 0.f), speed, 0.f);
+		const float strongest = math::min(deceleration(_direction, limits),
+						  sqrtf(2.f * math::max(limits.jerk, 0.f) * speed));
+		_along_track.reset(math::constrain(along_track, -strongest, 0.f), speed, 0.f);
 		_along_track.setMaxVel(speed);
+		_along_track.setMaxAccel(deceleration(_direction, limits));
+		_along_track.setMaxJerk(limits.jerk);
+		_along_track.updateDurations(0.f);
 	}
 
 	/**
@@ -68,11 +79,8 @@ public:
 	}
 
 	/** Advance the stop by dt [s] and write the NED position, velocity, acceleration and jerk references. */
-	void update(float dt, const Limits &limits, trajectory_setpoint_s &setpoint)
+	void update(float dt, trajectory_setpoint_s &setpoint)
 	{
-		_along_track.setMaxAccel(deceleration(_direction, limits));
-		_along_track.setMaxJerk(limits.jerk);
-		_along_track.updateDurations(0.f);
 		_along_track.updateTraj(dt);
 
 		(_origin + _direction * _along_track.getCurrentPosition()).copyTo(setpoint.position);
