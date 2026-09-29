@@ -45,6 +45,7 @@
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/Publication.hpp>
 #include <uORB/topics/landing_gear.h>
+#include <uORB/topics/mode_overlay_status.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/takeoff_status.h>
 #include <uORB/topics/trajectory_setpoint.h>
@@ -94,6 +95,9 @@ private:
 	void handleCommand();
 	void generateTrajectorySetpoint(const float dt, const vehicle_local_position_s &vehicle_local_position);
 
+	/** A navigation overlay replaces or brakes the reference, so the task trajectory stops describing the vehicle. */
+	bool overlayOwnsReference();
+
 	/**
 	 * Switch to a specific task (for normal usage)
 	 * @param new_task_index index to switch to
@@ -142,6 +146,7 @@ private:
 
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
+	uORB::Subscription _mode_overlay_status_sub{ORB_ID(mode_overlay_status)};
 	uORB::Subscription _takeoff_status_sub{ORB_ID(takeoff_status)};
 	uORB::Subscription _vehicle_attitude_setpoint_sub{ORB_ID(vehicle_attitude_setpoint)};
 	uORB::Subscription _vehicle_command_sub{ORB_ID(vehicle_command)};

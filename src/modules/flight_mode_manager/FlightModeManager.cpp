@@ -340,10 +340,23 @@ void FlightModeManager::generateTrajectorySetpoint(const float dt,
 	trajectory_setpoint_s setpoint = FlightTask::empty_trajectory_setpoint;
 	vehicle_constraints_s constraints = FlightTask::empty_constraints;
 
-	if (_current_task.task->updateInitialize() && _current_task.task->update()) {
-		// setpoints and constraints for the position controller from flighttask
-		setpoint = _current_task.task->getTrajectorySetpoint();
-		constraints = _current_task.task->getConstraints();
+	if (_current_task.task->updateInitialize()) {
+		// While an overlay owns the reference of an autonomous mode, keep the task's trajectory
+		// on the vehicle state so that it continues from there, not from where the overlay took
+		// over, once it regains control. The heading smoothing continues from its own state.
+		if ((_current_task.index == FlightTaskIndex::Auto) && overlayOwnsReference()) {
+			trajectory_setpoint_s anchor = FlightTask::empty_trajectory_setpoint;
+			const trajectory_setpoint_s previous = _current_task.task->getTrajectorySetpoint();
+			anchor.yaw = previous.yaw;
+			anchor.yawspeed = previous.yawspeed;
+			_current_task.task->activate(anchor);
+		}
+
+		if (_current_task.task->update()) {
+			// setpoints and constraints for the position controller from flighttask
+			setpoint = _current_task.task->getTrajectorySetpoint();
+			constraints = _current_task.task->getConstraints();
+		}
 	}
 
 	if (_takeoff_status_sub.updated()) {
@@ -377,6 +390,15 @@ void FlightModeManager::generateTrajectorySetpoint(const float dt,
 	}
 
 	_old_landing_gear_position = landing_gear.landing_gear;
+}
+
+bool FlightModeManager::overlayOwnsReference()
+{
+	// The overlay publishes its status at 50 Hz; an older status describes an earlier selection.
+	static constexpr hrt_abstime kStatusTimeout = 100_ms;
+	mode_overlay_status_s status;
+	return _mode_overlay_status_sub.copy(&status) && (status.engaged || status.braking)
+	       && hrt_elapsed_time(&status.timestamp) < kStatusTimeout;
 }
 
 FlightTaskError FlightModeManager::switchTask(FlightTaskIndex new_task_index)
