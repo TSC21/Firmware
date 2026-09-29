@@ -88,36 +88,16 @@ trajectory_setpoint_s ModeOverlay::update(const trajectory_setpoint_s &raw,
 		if (!_brake_active || _brake_epoch != status.reset_counter) {
 			_brake_yaw = PX4_ISFINITE(local.heading) ? local.heading : 0.f;
 			_brake_epoch = status.reset_counter;
-
-			for (unsigned i = 0; i < 3; ++i) {
-				_brake[i].reset(PX4_ISFINITE(acceleration(i)) ? acceleration(i) : 0.f, velocity(i), position(i));
-			}
+			_brake.start(position, velocity, acceleration);
 		}
 
 		_brake_active = true;
 		effective.timestamp = now;
 		effective.yaw = _brake_yaw;
 		effective.yawspeed = 0.f;
-
-		// Per-axis limits divided by sqrt(3) bound the total vector magnitude.
-		constexpr float inverse_sqrt_three = 0.577350269f;
-
-		for (auto &axis : _brake) {
-			axis.setMaxJerk(config.max_jerk * inverse_sqrt_three);
-			axis.setMaxAccel(config.maxAcceleration() * inverse_sqrt_three);
-			axis.setMaxVel(math::max(config.max_velocity_xy, math::max(config.max_velocity_up, config.max_velocity_down)));
-			axis.updateDurations(0.f);
-		}
-
-		VelocitySmoothing::timeSynchronization(_brake, 3);
-
-		for (unsigned i = 0; i < 3; ++i) {
-			_brake[i].updateTraj(dt);
-			effective.position[i] = _brake[i].getCurrentPosition();
-			effective.velocity[i] = _brake[i].getCurrentVelocity();
-			effective.acceleration[i] = _brake[i].getCurrentAcceleration();
-			effective.jerk[i] = _brake[i].getCurrentJerk();
-		}
+		const ModeOverlayBrake::Limits limits{config.max_acceleration_xy, config.max_acceleration_up,
+						      config.max_acceleration_down, config.max_jerk};
+		_brake.update(dt, limits, effective);
 
 	} else {
 		_brake_active = false;

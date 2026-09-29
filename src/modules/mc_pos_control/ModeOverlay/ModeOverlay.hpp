@@ -4,8 +4,8 @@
  ****************************************************************************/
 #pragma once
 
+#include "ModeOverlayBrake.hpp"
 #include "ModeOverlayPolicy.hpp"
-#include <lib/motion_planning/VelocitySmoothing.hpp>
 #include <px4_platform_common/module_params.h>
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
@@ -40,7 +40,7 @@ private:
 	vehicle_status_s _vehicle_status{};
 	position_setpoint_triplet_s _triplet{};
 	goto_setpoint_s _goto{};
-	VelocitySmoothing _brake[3];
+	ModeOverlayBrake _brake;
 	uint64_t _last_publish{0};
 	uint32_t _reset_count{0};
 	uint8_t _reset_counters[5] {};
