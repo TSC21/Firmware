@@ -119,3 +119,14 @@ px4_add_module(
 foreach(task ${flight_tasks_all})
 	target_link_libraries(modules__flight_mode_manager PUBLIC FlightTask${task})
 endforeach()
+
+# The test links the module on its own. PX4's platform libraries (mavlink_log, events) follow
+# LINKLIBS on the link line, so the task libraries that report through them are listed directly.
+px4_add_functional_gtest(SRC FlightModeManagerOverlayTest.cpp
+	LINKLIBS modules__flight_mode_manager FlightTaskOrbit CollisionPrevention
+	INCLUDES ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+if(TARGET functional-FlightModeManagerOverlay)
+	add_dependencies(functional-FlightModeManagerOverlay flighttasks_generated)
+endif()

@@ -39,6 +39,7 @@ target_compile_options(follow_target_estimator PRIVATE ${MAX_CUSTOM_OPT_LEVEL})
 
 target_link_libraries(follow_target_estimator
 	PRIVATE
+		geo
 		mathlib
 		px4_work_queue
 )

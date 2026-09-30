@@ -89,6 +89,8 @@ public:
 	bool init();
 
 private:
+	friend class FlightModeManagerTestPeer;
+
 	void Run() override;
 	void updateParams() override;
 	void start_flight_task();
