@@ -31,40 +31,72 @@
  *
  ****************************************************************************/
 
+/**
+ * @file UavcanNodeShell.hpp
+ * An NSH shell instance driven through a pair of pipes, exposed remotely via the
+ * DroneCAN uavcan.protocol.AccessCommandShell service.
+ */
+
 #pragma once
 
-#include "../Common.hpp"
-#include <lib/hysteresis/hysteresis.h>
-#include <uORB/SubscriptionMultiArray.hpp>
-#include <uORB/Subscription.hpp>
-#include <uORB/topics/sensor_gnss.h>
-#include <uORB/topics/sensors_status_gnss.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <px4_platform_common/tasks.h>
 
-class GnssRedundancyChecks : public HealthAndArmingCheckBase
+namespace uavcannode
+{
+
+class UavcanNodeShell
 {
 public:
-	GnssRedundancyChecks();
-	~GnssRedundancyChecks() = default;
+	UavcanNodeShell() = default;
+	~UavcanNodeShell();
 
-	void checkAndReport(const Context &context, Report &reporter) override;
+	/**
+	 * Start the shell task. Must only be called once per instance.
+	 * @return 0 on success, <0 errno otherwise.
+	 */
+	int start();
+
+	/** Whether the shell task still exists
+	 * @return true if the shell task exists.
+	 */
+	bool is_running();
+
+	/**
+	 * Queue data for the shell's stdin. Taken whole or not at all, since half a command
+	 * line would silently merge with the next one.
+	 * @return true if accepted, false if dropped
+	 */
+	bool write(const uint8_t *buffer, size_t len);
+
+	/**
+	 * Read from the shell's stdout/stderr.
+	 */
+	size_t read(uint8_t *buffer, size_t len);
+
+	/**
+	 * Number of bytes available to read().
+	 */
+	size_t available();
+
+	static constexpr size_t MaxInputSize = 128;
 
 private:
-	static constexpr int GPS_MAX_INSTANCES = 2;
-	static_assert(GPS_MAX_INSTANCES <= (int)(sizeof(sensors_status_gnss_s::device_ids) / sizeof(
-				sensors_status_gnss_s::device_ids[0])), "sensors_status_gnss has too few receiver entries");
-	uORB::SubscriptionMultiArray<sensor_gnss_s, GPS_MAX_INSTANCES> _sensor_gnss_sub{ORB_ID::sensor_gnss};
-	uORB::Subscription _sensors_status_gnss_sub{ORB_ID(sensors_status_gnss)};
+	int _to_shell_fd = -1;		///< write end of the pipe feeding the shell's stdin
+	int _from_shell_fd = -1;	///< read end of the pipe draining the shell's stdout+stderr
+	int _shell_fds[2] = { -1, -1 };	///< the shell task's own ends of the two pipes
+	px4_task_t _task = -1;
 
-	uint8_t _peak_healthy_count{0};
-	systemlib::Hysteresis _divergence_hysteresis;
+	uint8_t _input[MaxInputSize];
+	size_t _input_len = 0;
 
+	void flush_input();
 
-	DEFINE_PARAMETERS_CUSTOM_PARENT(HealthAndArmingCheckBase,
-					(ParamInt<px4::params::SYS_HAS_NUM_GNSS>) _param_sys_has_num_gnss,
-					(ParamInt<px4::params::COM_GNSSLOSS_ACT>) _param_com_gnssloss_act,
-					(ParamFloat<px4::params::SENS_GNSS0_OFFX>) _param_sens_gnss0_offx,
-					(ParamFloat<px4::params::SENS_GNSS0_OFFY>) _param_sens_gnss0_offy,
-					(ParamFloat<px4::params::SENS_GNSS1_OFFX>) _param_sens_gnss1_offx,
-					(ParamFloat<px4::params::SENS_GNSS1_OFFY>) _param_sens_gnss1_offy
-				       )
+	static int shell_start_thread(int argc, char *argv[]);
+
+	UavcanNodeShell(const UavcanNodeShell &) = delete;
+	UavcanNodeShell operator=(const UavcanNodeShell &) = delete;
 };
+
+} // namespace uavcannode

@@ -46,7 +46,7 @@
 #include "estimator_interface.h"
 
 #if defined(CONFIG_EKF2_GNSS)
-# include "aid_sources/gnss/gnss_checks.hpp"
+# include <uORB/topics/vehicle_gnss.h>
 # include "yaw_estimator/EKFGSF_yaw.h"
 #endif // CONFIG_EKF2_GNSS
 
@@ -404,10 +404,7 @@ public:
 	// set minimum continuous period without GPS fail required to mark a healthy GPS status
 	void set_min_required_gps_health_time(uint32_t time_us) { _min_gps_health_time_us = time_us; }
 
-	uint16_t gps_check_fail_flags() const { return _gnss_checks.getFailFlags(); }
-	uint16_t gps_checks_enabled() const { return _gnss_checks.getEnabledChecks(); }
-
-	bool gps_checks_passed() const { return _gnss_checks.passed(); };
+	bool gps_checks_passed() const { return _gnss_usable; };
 
 	const BiasEstimator::status &getGpsHgtBiasEstimatorStatus() const { return _gps_hgt_b_est.getStatus(); }
 
@@ -614,6 +611,11 @@ private:
 
 	// height sensor status
 	bool _gps_intermittent{true};           ///< true if data into the buffer is intermittent
+
+	uint64_t _time_last_gnss_sample_accepted_us{0}; ///< last delayed-horizon time a GNSS sample was usable and within the velocity limit (us)
+	bool _gnss_usable{false};                   ///< the latest GNSS sample at the fusion time horizon was usable
+	bool _gnss_checks_passed_reported{false};   ///< gps_checks_passed was reported since the last reset
+	uint64_t _time_last_gnss_fusion_stop_us{0}; ///< when GNSS velocity and position fusion were last both stopped
 
 	HeightBiasEstimator _gps_hgt_b_est{HeightSensor::GNSS, _height_sensor_ref};
 
@@ -935,6 +937,22 @@ private:
 	void updateGnssPos(const gnssSample &gnss_sample, estimator_aid_source2d_s &aid_src);
 	bool isGnssVelResetAllowed() const;
 	bool isGnssPosResetAllowed() const;
+
+	// After velocity and position fusion both stop, a restart waits for the GNSS health time while disarmed on the
+	// ground, where the checks are strict, otherwise for a tenth of it and at least a second. The duration follows the
+	// current armed/in-air state, so arming during a ground hold-off shortens the remainder to the in-flight value.
+	// Computed here so the EKF does not depend on the checker's state.
+	uint64_t gnssRestartHoldOffUs() const
+	{
+		const bool disarmed_on_ground = !_control_status.flags.armed && !_control_status.flags.in_air;
+		return disarmed_on_ground ? (uint64_t)_min_gps_health_time_us
+		       : math::max((uint64_t)1e6, (uint64_t)(_min_gps_health_time_us / 10));
+	}
+
+	bool isGnssRestartHoldOffElapsed() const
+	{
+		return isTimedOut(_time_last_gnss_fusion_stop_us, gnssRestartHoldOffUs());
+	}
 	void controlGnssYawEstimator(estimator_aid_source3d_s &aid_src_vel);
 	bool tryYawEmergencyReset();
 	void resetVelocityToGnss(estimator_aid_source3d_s &aid_src);

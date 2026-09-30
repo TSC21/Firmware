@@ -310,9 +310,10 @@ param_modify_on_import_ret param_modify_on_import(bson_node_t node)
 
 	// 2026-08-05: the protocol selection moved out of VTX_DEVICE into VTX_PROTOCOL. VTX_DEVICE keeps
 	// the old layout that holds the device in its high byte, so only the protocol has to be derived:
-	// the Peak THOR T67 speaks SmartAudio, the Rush MAX SOLO speaks Tramp. A value that is not listed
-	// stays untouched and acts as a generic device on SmartAudio, which is what both parameters
-	// default to, so the old value 0 needs nothing.
+	// the Peak THOR speaks SmartAudio. The Rush MAX SOLO entry was removed and falls back to a generic
+	// device on Tramp, the only protocol it speaks. A value that is not listed stays untouched and acts
+	// as a generic device on SmartAudio, which is what both parameters default to, so the old value 0
+	// needs nothing.
 	{
 		static constexpr int32_t PROTOCOL_SMART_AUDIO = 0; // VTX_PROTOCOL value, not in msg/Vtx.msg
 
@@ -326,13 +327,13 @@ param_modify_on_import_ret param_modify_on_import(bson_node_t node)
 				protocol = vtx_s::PROTOCOL_TRAMP;
 				break;
 
-			case 5120: // Peak THOR T67, SmartAudio only
-				device = vtx_s::DEVICE_PEAK_THOR_T67 << 8;
+			case 5120: // Peak THOR (T35, T67, T78, T89), SmartAudio only
+				device = vtx_s::DEVICE_PEAK_THOR << 8;
 				protocol = PROTOCOL_SMART_AUDIO;
 				break;
 
-			case 10240: // Rush MAX SOLO, Tramp only
-				device = vtx_s::DEVICE_RUSH_MAX_SOLO << 8;
+			case 10240: // Rush MAX SOLO -> generic device, Tramp
+				device = vtx_s::DEVICE_UNKNOWN << 8;
 				protocol = vtx_s::PROTOCOL_TRAMP;
 				break;
 			}
@@ -359,8 +360,6 @@ param_modify_on_import_ret param_modify_on_import(bson_node_t node)
 	// 2026-09-28: translate SENS_GPS* to SENS_GNSS*
 	{
 		static constexpr const char *kRenames[][2] {
-			{"SENS_GPS_MASK", "SENS_GNSS_MASK"},
-			{"SENS_GPS_TAU", "SENS_GNSS_TAU"},
 			{"SENS_GPS_PRIME", "SENS_GNSS_PRIME"},
 			{"SENS_GPS0_ID", "SENS_GNSS0_ID"},
 			{"SENS_GPS0_OFFX", "SENS_GNSS0_OFFX"},
@@ -372,6 +371,30 @@ param_modify_on_import_ret param_modify_on_import(bson_node_t node)
 			{"SENS_GPS1_OFFY", "SENS_GNSS1_OFFY"},
 			{"SENS_GPS1_OFFZ", "SENS_GNSS1_OFFZ"},
 			{"SENS_GPS1_DELAY", "SENS_GNSS1_DELAY"},
+		};
+
+		for (const auto &rename : kRenames) {
+			if (strcmp(rename[0], node->name) == 0) {
+				strcpy(node->name, rename[1]);
+				PX4_INFO("migrating %s -> %s", rename[0], rename[1]);
+				return param_modify_on_import_ret::PARAM_MODIFIED;
+			}
+		}
+	}
+
+	// 2026-09-29: the GNSS checks move from EKF2 to the sensors module
+	{
+		static constexpr const char *kRenames[][2] {
+			{"EKF2_GPS_CHECK", "GNSS_CHECK"},
+			{"EKF2_REQ_EPH", "GNSS_REQ_EPH"},
+			{"EKF2_REQ_EPV", "GNSS_REQ_EPV"},
+			{"EKF2_REQ_SACC", "GNSS_REQ_SACC"},
+			{"EKF2_REQ_NSATS", "GNSS_REQ_NSATS"},
+			{"EKF2_REQ_PDOP", "GNSS_REQ_PDOP"},
+			{"EKF2_REQ_HDRIFT", "GNSS_REQ_HDRIFT"},
+			{"EKF2_REQ_VDRIFT", "GNSS_REQ_VDRIFT"},
+			{"EKF2_REQ_FIX", "GNSS_REQ_FIX"},
+			{"EKF2_REQ_GPS_H", "GNSS_REQ_TIME"},
 		};
 
 		for (const auto &rename : kRenames) {
